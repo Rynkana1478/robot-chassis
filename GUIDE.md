@@ -1,42 +1,38 @@
-# ESP8266 4WD Robot Chassis - Beginner Guide
+# ESP32-S3 4WD Robot Chassis - Beginner Guide
 
 ## What Is This Project?
 
-This is a self-driving robot car that:
+A self-driving robot car that:
 - **Avoids obstacles** using an ultrasonic sensor
-- **Finds its way** to a destination you set (pathfinding)
+- **Finds its way** to a destination you set (A* pathfinding)
 - **Reports everything** to a dashboard on your computer
-- Can be **manually controlled** from your browser
+- **Drives itself** back home via breadcrumb backtracking
+- Can be **manually controlled** from your browser or keyboard
 
-You control it from a web dashboard running on your PC. Both the robot and your PC connect to your **phone's hotspot** (same WiFi network).
+You control it from a web dashboard running on your PC. Both the robot and your PC connect to your **phone's hotspot**.
 
 ---
 
-## How The System Works (Big Picture)
+## How The System Works
 
 ```
-    Your Phone (Hotspot)
+    Phone Hotspot (2.4GHz WiFi)
          │
     ┌────┴────┐
-    │  WiFi   │
-    ├─────────┤
     │         │
-[Your PC]  [Robot ESP8266]
+[Your PC]  [ESP32-S3 Robot]
     │         │
-    │ Flask   │ Reads sensors
-    │ server  │ Drives motors
-    │         │ Avoids obstacles
+    │ Flask   │ Core 1: Sensors + motors + pathfinding (20Hz)
+    │ server  │ Core 0: WiFi telemetry + commands (5Hz)
     │         │
-    │ Every 200ms:
-    │  ← Robot POSTs sensor data
-    │  → Robot GETs commands
+    │ Robot POSTs sensor data → server stores it
+    │ Robot GETs commands    ← server queues your clicks
     │
-    │ Every 500ms:
-    │  Browser polls status
-    │  Browser sends your clicks
+    │ Browser polls server for status (every 500ms)
+    │ Browser sends your button clicks to server
 ```
 
-The ESP8266 does NOT host a web page. Instead, it acts as a **client** that talks to your PC's server via the phone hotspot.
+The ESP32-S3 does NOT host a web page. It acts as a **client** that talks to your PC's Flask server. The two CPU cores run independently — WiFi never blocks the robot's sensors or motors.
 
 ---
 
@@ -44,356 +40,303 @@ The ESP8266 does NOT host a web page. Instead, it acts as a **client** that talk
 
 | Part | What It Does |
 |------|-------------|
-| **NodeMCU ESP8266** | The brain. Runs the code, has WiFi built-in |
-| **DRV8833** | Motor driver chip. Takes signals from ESP8266, sends power to motors |
-| **4WD Chassis + 4 Motors** | The frame and wheels. 4 motors, but wired as 2 pairs (left side + right side) |
-| **HC-SR04 Ultrasonic** | Measures distance to objects (like a bat). Sends a sound pulse, measures echo time |
-| **SG90 Servo** | A small motor that rotates the ultrasonic sensor left/center/right to scan |
-| **MPU6050** | Gyroscope + accelerometer. Knows if the robot is tilting or rotating |
-| **Compass Module** | Tells which direction is north. Used for navigation heading |
-| **Wheel Encoder (x1)** | A slotted disc on one wheel. Counts rotations to measure distance traveled |
-| **6V Battery** | Powers everything |
+| **ESP32-S3 DevKitC-1** | The brain. Dual-core 240MHz, WiFi built-in, 34 GPIO pins |
+| **TB6612FNG** | Motor driver. Takes direction + speed signals from ESP32, sends power to motors. Separate direction pins + PWM speed pin per channel |
+| **4WD Chassis + 4 Motors** | The frame and wheels. 4 TT gear motors wired as 2 pairs (left side + right side) |
+| **HC-SR04 Ultrasonic** | Measures distance to objects. Sends a sound pulse, measures echo return time |
+| **SG90 Servo** | Rotates the ultrasonic sensor left/center/right to scan for obstacles |
+| **MPU6050** | Gyroscope + accelerometer. Gyro Z tracks rotation for heading. Accelerometer detects tilt |
+| **Speed Encoders (x2)** | Slotted discs on left + right wheels. Count rotations to measure distance and detect turns |
+| **2S 18650 Battery (7.4V)** | Two rechargeable Li-ion cells in series. Stable, high-current power |
+| **2S BMS 16A** | Battery Management System. Protects against overcharge, over-discharge, and short circuits |
+| **USB-C 2S Charger** | Built-in charging. Plug in a phone charger cable, never remove batteries |
+| **Buck Converter** | Steps 7.4V down to 5V for ESP32 and sensors |
 
 ---
 
 ## How The Wiring Works
 
-### Motor Wiring (DRV8833)
-
-The DRV8833 has 2 channels. Each channel can drive motors forward or backward:
+### Power System
 
 ```
-Channel A: Left Front Motor  ──┐
-                                ├── wired in PARALLEL (same 2 wires)
-           Left Rear Motor   ──┘
-
-Channel B: Right Front Motor ──┐
-                                ├── wired in PARALLEL (same 2 wires)
-           Right Rear Motor  ──┘
+USB-C charger cable
+  └── [2S Charger] ── [2S BMS 16A] ── [18650 Cell 1 + Cell 2]
+                            │
+                      Protected 7.4V
+                            │
+              ┌─────────────┼─────────────┐
+              │             │             │
+        [Buck → 5V]   TB6612 VM     [Voltage divider]
+              │        (motors)      → ESP32 ADC
+         ┌────┴────┐
+     ESP32 5V  HC-SR04
+               Servo
 ```
 
-"Parallel" means: connect both motor + wires together, both motor - wires together. They spin together as one.
+The BMS protects the batteries automatically. The buck converter steps 7.4V down to 5V for the ESP32 and sensors. Motors get 7.4V directly through the TB6612FNG.
 
-**Why DRV8833 not L298N?** DRV8833 is smaller, more efficient (less heat), and works fine at 6V. L298N wastes ~2V as heat.
+### Motor Wiring (TB6612FNG)
 
-### How The DRV8833 Controls Direction
+The TB6612FNG is different from simpler drivers. It has **separate pins for direction and speed**:
 
-Each channel has 2 input pins (IN1, IN2):
+```
+Direction (digital HIGH/LOW):     Speed (PWM):
+  AIN1 + AIN2 → left motor dir     PWMA → left motor speed
+  BIN1 + BIN2 → right motor dir    PWMB → right motor speed
+```
 
-| IN1 | IN2 | Motor Action |
-|-----|-----|-------------|
-| PWM | 0 | Forward (speed = PWM value) |
-| 0 | PWM | Backward (speed = PWM value) |
-| 0 | 0 | Coast (free spin, no power) |
-| 1 | 1 | Brake (motor locked) |
+| AIN1 | AIN2 | PWMA | Motor Action |
+|------|------|------|-------------|
+| HIGH | LOW | PWM value | Forward at speed |
+| LOW | HIGH | PWM value | Backward at speed |
+| HIGH | HIGH | any | Brake (locked) |
+| LOW | LOW | any | Coast (free spin) |
 
-PWM = Pulse Width Modulation. It's how we control speed. Value 0-1023 on ESP8266 (0 = stop, 1023 = full speed).
+PWM = Pulse Width Modulation. On ESP32-S3, we use LEDC hardware PWM channels. Value 0-1023 (10-bit): 0 = stop, 1023 = full speed.
 
-### I2C Bus (Shared Wire)
+The STBY (standby) pin must be HIGH for the driver to work. Setting it LOW puts the driver to sleep.
 
-MPU6050 and Compass both connect to the **same 2 wires** (SDA + SCL). This is called I2C - a protocol where multiple devices share one wire pair. Each device has a unique address:
-- MPU6050 address: `0x68`
-- Compass address: `0x0D`
+Each side has 2 motors wired **in parallel** — they share the same output and spin together.
 
-The ESP8266 talks to each one by calling its address, like calling different phone numbers on the same line.
+### I2C Bus
+
+The MPU6050 connects via I2C (2-wire protocol):
+- **SDA** (data) = GPIO 11
+- **SCL** (clock) = GPIO 12
+- Address: `0x68`
+
+**Important:** The MPU6050 VCC must connect **directly** to the ESP32's 3.3V pin with a short wire. Connecting through a breadboard rail causes voltage noise that corrupts I2C data.
 
 ### Ultrasonic Sensor (HC-SR04)
 
 ```
-1. ESP8266 sends a 10 microsecond pulse on TRIGGER pin
+1. ESP32 sends a 10 microsecond pulse on TRIGGER pin
 2. HC-SR04 sends an ultrasonic sound wave
 3. Sound bounces off obstacle and returns
-4. HC-SR04 sets ECHO pin HIGH for the duration of the round trip
-5. ESP8266 measures that time
+4. HC-SR04 sets ECHO pin HIGH for the round-trip duration
+5. ESP32 measures that time
 6. Distance = time / 58 (gives centimeters)
 ```
 
 Max range: ~400cm. If no echo returns, it times out (we return 999 = no obstacle).
 
-### Wheel Encoder
+The sensor is mounted on a servo that sweeps left/center/right. This gives three distance readings from one sensor. The sweep is **non-blocking** — the servo moves one step per loop cycle, so the robot never freezes while scanning.
 
-A disc with slots attached to a wheel. A sensor counts the slots as they pass:
-- 20 slots per full wheel rotation
+### Wheel Encoders
+
+Two encoder discs (one on each side) count wheel rotations via hardware interrupts:
+- 20 slots per revolution
 - Wheel circumference = 20.4cm
-- So each slot = ~1cm of distance
-- Connected to GPIO3 (the RX pin) using an **interrupt** - the ESP8266 automatically counts every tick without slowing down the main code
+- Each slot = ~1cm of distance
+- Left encoder on GPIO 13, Right encoder on GPIO 14
 
-**Important:** Serial (USB debug output) is disabled after boot because we need the RX pin for the encoder. Debug messages only appear during the first ~1 second of startup.
+With **two encoders**, the robot can detect:
+- **Straight movement** — both counts increase equally
+- **Turning** — one side counts more than the other
+- **Spinning in place** — one counts up, the other counts up too (both wheels move)
+
+This is called **differential odometry** and is much more accurate than a single encoder.
+
+### ESP32-S3 Servo Control
+
+ESP32 does **not** use the standard Arduino `Servo.h` library. It uses `ESP32Servo` which wraps the LEDC PWM hardware:
+
+```cpp
+#include <ESP32Servo.h>
+
+servo.setPeriodHertz(50);          // 50Hz = standard servo frequency
+servo.attach(pin, 500, 2400);     // min/max pulse width in microseconds
+servo.write(90);                   // angle: 0-180 degrees
+```
+
+Our project allocates LEDC channels like this:
+- Channel 0 = Left motor PWM (5kHz)
+- Channel 1 = Right motor PWM (5kHz)
+- Channel 2 = Servo (50Hz, auto-assigned by ESP32Servo)
 
 ---
 
 ## Understanding The Code Files
 
-### `config.h` - All Settings In One Place
+### `config.h` — All Settings
 
-Every pin number, speed value, threshold, and WiFi credential lives here. If you need to change anything (like your WiFi password or server IP), this is the only file to edit.
+Every pin number, speed value, threshold, and WiFi credential lives here. The only file you need to edit before uploading.
 
-Key settings to change:
+Key settings:
 ```cpp
-#define WIFI_SSID     "YourPhoneHotspot"     // Phone hotspot name
-#define WIFI_PASSWORD "YourHotspotPassword"  // Phone hotspot password
-#define SERVER_HOST   "192.168.43.100"       // Your PC's IP on the hotspot
+#define WIFI_SSID     "YourHotspot"
+#define WIFI_PASSWORD "Password"
+#define SERVER_HOST   "192.168.43.100"  // Your PC's IP on the hotspot
 ```
 
-### `motors.h` - Moving The Robot
+### `motors.h` — TB6612FNG Driver
 
-Simple commands:
-- `motors.forward(speed)` - both sides forward
-- `motors.backward(speed)` - both sides backward
-- `motors.turnLeft(speed)` - left backward + right forward (spin turn)
-- `motors.turnRight(speed)` - left forward + right backward
-- `motors.curveLeft(speed)` - left slow + right fast (gentle turn)
-- `motors.stop()` - coast to stop
-- `motors.brake()` - lock wheels immediately
+Commands:
+- `motors.forward(speed)` — both sides forward
+- `motors.backward(speed)` — both sides backward
+- `motors.turnLeft(speed)` — spin turn (left back, right forward)
+- `motors.turnRight(speed)` — spin turn
+- `motors.curveLeft(speed)` — gentle curve (left slow, right fast)
+- `motors.stop()` — coast to stop
+- `motors.brake()` — lock wheels immediately
+- `motors.sleep()` / `motors.wake()` — standby mode
 
-### `sensors.h` - Reading The World
+### `sensors.h` — Ultrasonic + MPU6050
 
-The single ultrasonic sensor is mounted on a servo. To see left, center, and right:
-1. Servo turns to 160 degrees (left), measure distance
-2. Servo turns to 90 degrees (center), measure distance
-3. Servo turns to 20 degrees (right), measure distance
-4. Servo returns to center
+**Ultrasonic sweep** (non-blocking state machine):
+1. Servo moves to LEFT → read distance
+2. Servo moves to CENTER → read distance
+3. Servo moves to RIGHT → read distance
+4. Servo returns to CENTER
 
-This "sweep" takes ~450ms. For quick checks, `updateFrontOnly()` just reads center (~50ms).
+Each step takes ~120ms. Total sweep ~480ms. Between steps, the main loop keeps running (checking front, updating encoders, etc).
 
-The compass reads magnetic heading (0-360 degrees, where 0 = North).
+**Heading** from MPU6050 gyroscope:
+- Gyro Z measures rotation rate (degrees per second)
+- Integrated over time: `heading += gyroRate * deltaTime`
+- Auto-calibrated at boot (2 seconds, keep robot still)
+- Dead zone filters out noise below 0.3 deg/s
+- Drifts ~1-5 degrees per minute (acceptable for navigation)
 
-### `encoder.h` - Tracking Distance
+### `encoder.h` — Dual Encoder Odometry
 
-Counts wheel rotations using hardware interrupts. Every 100ms, it:
-1. Reads how many ticks happened since last check
-2. Converts ticks to centimeters
-3. Uses compass heading to calculate X,Y position change
-4. Adds to running totals
+Both encoders use hardware interrupts (ESP32 supports interrupts on all GPIOs). Every 50ms:
+1. Read how many ticks each encoder counted since last check
+2. Average left + right ticks for distance
+3. Use heading to calculate X,Y position change
+4. Also compute heading change from encoder differential (sanity check)
 
-### `avoidance.h` - Don't Hit Things (Reactive Layer)
+Thread-safe: uses `portENTER_CRITICAL` to read volatile counters without race conditions.
 
-This is the **safety system**. It has priority over everything:
+### `avoidance.h` — Don't Hit Things
 
-```
-                    distFront > 50cm
-                   ┌─────────────────────┐
-                   │    IDLE             │ ← Pathfinder controls motors
-                   └──────┬──────────────┘
-                          │ distFront < 30cm
-                   ┌──────▼──────────────┐
-                   │    SLOWDOWN         │ ← Sweep scan, curve away
-                   └──────┬──────────────┘
-                          │ distFront < 15cm
-                   ┌──────▼──────────────┐
-                   │    SCANNING         │ ← Full stop, sweep all directions
-                   └──────┬──────────────┘
-                          │
-                   ┌──────▼──────────────┐
-                   │    REVERSING        │ ← Back up 300ms
-                   └──────┬──────────────┘
-                          │
-                   ┌──────▼──────────────┐
-                   │    TURNING          │ ← Turn toward clearest direction
-                   └─────────────────────┘
-```
-
-### `pathfinder.h` - Finding The Way (Planning Layer)
-
-Uses the **A* algorithm** on a **sliding** 20x20 grid with **unlimited range**.
-
-How it works:
-1. Robot starts at world position (0, 0) cm
-2. You set a target in centimeters (e.g., X=0, Y=500 = 5 meters forward)
-3. The grid is centered on the robot. As the robot moves, the grid slides with it
-4. Ultrasonic readings mark cells as "obstacle" or "free"
-5. A* finds the shortest path avoiding obstacles
-6. Path recalculates every 500ms as new obstacles are discovered
-7. If target is beyond current grid view, robot pathfinds toward the grid edge closest to the target, then the grid slides and it continues
-
-The robot also drops **breadcrumbs** every 20cm. These are waypoints stored in memory that let it **backtrack** home by retracing its path in reverse.
-
-### `robot_main.ino` - The Main Loop
-
-This ties everything together. Every loop cycle:
+Non-blocking state machine with 6 states:
 
 ```
-Every 200ms: POST telemetry to server, GET commands from server
-Every 100ms: Read compass, update encoder position, check for obstacles
-Every 500ms: Recalculate A* path
+Front clear (>50cm)
+┌───────────────────────┐
+│       IDLE            │ ← Pathfinder controls motors
+└───────┬───────────────┘
+        │ Front < 30cm
+┌───────▼───────────────┐
+│     SLOWDOWN          │ ← Slow down, start sweep scan
+└───────┬───────────────┘
+        │ Front < 15cm
+┌───────▼───────────────┐
+│      BRAKE            │ ← Emergency stop, wait for sweep
+└───────┬───────────────┘
+        │ Sweep done
+┌───────▼───────────────┐
+│    REVERSING          │ ← Back up for 300ms
+└───────┬───────────────┘
+        │
+┌───────▼───────────────┐
+│     TURNING           │ ← Turn toward clearest direction
+└───────┬───────────────┘
+        │ Front clear?
+        └──→ Back to IDLE
 ```
 
-Priority: **Avoidance > Pathfinding > Manual commands**
+The front distance is checked **every loop cycle** (not just during avoidance). Even in manual mode, the safety system brakes if an obstacle is too close.
 
-If the avoidance system detects a close obstacle, it overrides pathfinding AND manual control to keep the robot safe.
+### `pathfinder.h` — A* Pathfinding
 
----
+The v2 pathfinder on ESP32-S3 has major improvements:
 
-## The Server Side
+**8-directional movement** — Can move diagonally (NE, NW, SE, SW), not just N/S/E/W. This produces smoother, more natural paths.
 
-### `server/app.py` - Flask Server
+**Octile distance heuristic** — The correct heuristic for 8-direction grids. Calculates minimum cost considering both cardinal and diagonal moves.
 
-A lightweight Python web server that:
-1. **Receives data** from the robot (POST /api/robot/report)
-2. **Serves commands** to the robot (GET /api/robot/command)
-3. **Serves the dashboard** webpage to your browser
-4. **Relays your clicks** from the dashboard to the robot
+**Obstacle inflation** — Cells next to obstacles get a cost penalty. This keeps the robot away from walls instead of scraping past them.
 
-It stores the latest robot state in memory (a Python dictionary). No database needed.
+**Corner-cut prevention** — Diagonal movement is blocked if either adjacent cardinal cell is an obstacle. Prevents the robot from clipping corners.
 
-Command flow: You click "FWD" on dashboard -> browser sends POST to server -> server stores command -> robot fetches it on next GET -> robot executes.
+**Path smoothing** — After A* finds the path, removes unnecessary waypoints on straight lines. Uses line-of-sight checks (Bresenham's algorithm) to verify no obstacles between points.
 
-### `server/templates/dashboard.html` - The Dashboard
+**Sliding 40x40 grid** — 4m x 4m visible area (vs 2m x 2m on v1). When the robot approaches the edge (within 6 cells), the entire grid shifts:
+- Known obstacle/free data preserved
+- New cells marked "unknown" (higher traversal cost)
+- Target position recalculated
+- **Unlimited travel range** with only 1.6KB of grid memory
 
-Three panels:
-1. **Status** - Live sensor readings, battery, heading, position, mode, breadcrumbs
-2. **Destination** - Set target in cm, backtrack button, live grid map
-3. **Controls** - Manual drive buttons + autonomous + backtrack + reset
+**100 breadcrumbs** — Waypoints dropped every 20cm (covers 20m of travel). Backtracking follows them in reverse, using A* to navigate between each crumb.
 
-Controls: **WASD** or **Arrow Keys** to drive, **Space** = stop, **B** = backtrack, **R** = reset.
+### `robot_main.cpp` — The Brain
+
+**Dual-core operation:**
+- **Core 1** (main loop): Sensors, encoders, avoidance, pathfinding — runs at 20Hz (every 50ms)
+- **Core 0** (WiFi task): Telemetry POST, command GET, debug log flush — runs independently at 5Hz
+
+This is the biggest upgrade from v1. WiFi operations (which can block for up to 500ms on bad connections) **never** affect the robot's sensor loop or motor control.
+
+**Thread safety:** Telemetry data is shared between cores via a mutex-protected struct. Core 1 writes sensor data, Core 0 reads it for HTTP POST.
+
+### `debug.h` — WiFi Debug Logger
+
+Since the ESP32-S3 keeps Serial alive (unlike ESP8266), you get debug output on both:
+- **Serial Monitor** — prints sensor summary every second
+- **WiFi dashboard** — streams log messages to the debug console panel
+
+9 hardware test commands can be triggered from the dashboard to test each component individually.
 
 ---
 
 ## How Self-Tracking Works
 
-This is the most important concept. The robot needs to know WHERE IT IS at all times, without GPS (GPS doesn't work indoors and is too inaccurate for a small robot).
-
-### Dead Reckoning (Encoder + Compass)
-
-The robot combines two sensors to track its position:
+### Dead Reckoning (Dual Encoders + Gyro)
 
 ```
-Step 1: Encoder counts wheel ticks
-        "I moved 5 ticks = 5.1 cm"
+Step 1: Both encoders count ticks
+        Left: 5 ticks, Right: 5 ticks → "Moved 5.1cm straight"
+        Left: 3 ticks, Right: 7 ticks → "Moved forward while turning right"
 
-Step 2: Compass reads heading
-        "I'm facing 45 degrees (northeast)"
+Step 2: Gyro reads rotation rate
+        "Rotating at 12 deg/s"
 
-Step 3: Math converts distance + heading to X,Y change
-        deltaX = 5.1 * sin(45°) = 3.6 cm east
-        deltaY = 5.1 * cos(45°) = 3.6 cm north
+Step 3: Integrate heading
+        heading += 12 * deltaTime → new heading
 
-Step 4: Add to running position
-        posX = old_posX + 3.6
-        posY = old_posY + 3.6
+Step 4: Convert distance + heading to X,Y
+        deltaX = 5.1 * sin(heading)
+        deltaY = 5.1 * cos(heading)
+
+Step 5: Update position
+        posX += deltaX
+        posY += deltaY
 ```
 
-This runs every **100ms** (10 times per second). The position is in **centimeters** relative to where the robot started (the start position is always 0, 0).
+This runs every **50ms** (20 times per second). Position is in **centimeters** relative to the start point (0, 0).
 
-### How Accurate Is It?
+### Accuracy
 
-**Honestly: not perfect.** Here's why:
+**Dual encoders** are much better than single encoder:
 
-| Source of Error | Effect |
-|----------------|--------|
-| Only 1 encoder (not 2) | Can't detect if wheels slip on one side |
-| Encoder has 20 slots | Resolution is ~1cm per tick (can't measure smaller movements) |
-| Compass near motors | Motor magnets can shift compass readings by 5-15 degrees |
-| Wheel slip on turns | Spinning turns slip more than straight driving |
-| Accumulated drift | Small errors add up over distance |
+| Configuration | Turn detection | Straight accuracy |
+|--------------|----------------|-------------------|
+| 1 encoder (v1) | Can't detect turns | ~1cm per tick |
+| 2 encoders (v2) | Detects turns from L/R difference | Same, plus turn correction |
 
-**Expected accuracy:**
-- Short distance (< 1m): within ~5-10cm of real position
-- Medium distance (1-5m): within ~20-50cm
-- Long distance (> 5m): could be off by 50-100cm+
+**Gyro drift:** ~1-5 degrees per minute. For short runs (< 2 minutes), this is negligible. For longer runs, the drift accumulates but the pathfinder constantly recalculates, so the robot still reaches its target.
 
-**The robot considers the target "reached" when it gets within 15cm.** This is intentionally generous because the position tracking isn't precise enough for exact positioning.
-
-### Is "Nearly There" Acceptable?
-
-**Yes.** The system is designed for "close enough":
-- Target reached = within **15cm** of the destination
-- This accounts for sensor drift and wheel slip
-- For a small robot navigating a room, 15cm accuracy is practical
-
-If you need better accuracy, you could add:
-- A second wheel encoder (measures turning more accurately)
-- IR line following for precise paths
-- Visual markers (camera-based, but ESP8266 can't do this)
-
----
-
-## How The Sliding Grid Works
-
-### The Problem
-The pathfinding grid is 20x20 cells at 10cm each = 2m x 2m. But the robot might need to travel 5m or 10m.
-
-### The Solution: Sliding Window
-
-The grid is like a **window** that follows the robot. The robot is always near the center:
-
-```
-Time 0: Robot at start          Time 1: Robot moved right
-┌──────────────────────┐       ┌──────────────────────┐
-│          [R]         │       │                      │
-│                      │  -->  │         [R]          │
-│                      │       │                      │
-│                      │       │                      │
-└──────────────────────┘       └──────────────────────┘
-Grid covers 0-200cm            Grid shifted! Now covers 40-240cm
-                               Old left edge data discarded
-                               New right edge filled with "unknown"
-```
-
-When the robot gets within **4 cells of any edge**, the entire grid shifts:
-1. Known obstacle/free data shifts with it (preserved)
-2. New cells at the edge are marked "unknown"
-3. The robot is re-centered
-4. Target position is recalculated on the new grid
-
-**This means unlimited travel range** with only 400 bytes of grid memory.
-
-### Navigating Beyond The Grid View
-
-If your target is 5m away but the grid only shows 2m:
-1. The pathfinder clamps the target to the nearest grid edge
-2. Robot pathfinds to that edge (avoiding obstacles along the way)
-3. Grid slides as robot moves
-4. New obstacles are discovered and mapped
-5. Pathfinder recalculates toward the (still distant) target
-6. Repeat until target is within the grid view
-7. Final approach to exact target position
-
----
-
-## How Backtracking Works
-
-The robot drops **breadcrumbs** as it drives - small waypoints stored every 20cm of travel. Up to 50 breadcrumbs are stored (covering ~10m of travel).
-
-```
-Start ──(crumb)──(crumb)──(crumb)──(crumb)──[Robot is here]
-  0        20cm    40cm    60cm     80cm
-
-When you press BACKTRACK:
-
-Start ──(crumb)──(crumb)──(crumb)──[Robot]──(done)
-  0        20cm    40cm    goes to    60cm
-                           each crumb
-                           in reverse
-```
-
-Backtracking follows breadcrumbs in **reverse order**, from newest to oldest. At each crumb, the robot uses A* pathfinding to navigate there (avoiding any obstacles discovered on the way back).
-
-If more than 50 crumbs exist (> 10m of travel), the oldest crumbs are dropped. The robot can still backtrack to the most recent 10m of its path.
+**Target reached threshold:** 15cm. The robot considers the target "reached" when it gets within 15cm. This accounts for all accumulated errors.
 
 ---
 
 ## How To Run It
 
-### Step 1: Turn On Phone Hotspot
+### Step 1: Phone Hotspot
 
-- **Android:** Settings > Connections > Mobile Hotspot and Tethering
-- **iPhone:** Settings > Personal Hotspot
-- Note the hotspot name and password
-- **Important:** Must be 2.4GHz (ESP8266 doesn't support 5GHz)
+Turn on hotspot (must be 2.4GHz). Note the name and password.
 
 ### Step 2: Connect PC to Hotspot
 
-Join the phone's WiFi from your laptop. Then find your PC's IP:
+Join the hotspot from your laptop. Find your IP:
 ```bash
-# Windows
 ipconfig
-# Look for "Wireless LAN adapter Wi-Fi" → IPv4 Address
-# Android hotspot typically gives: 192.168.43.x
-# iPhone hotspot typically gives: 172.20.10.x
+# Look for "Wireless LAN" → IPv4 Address (e.g., 192.168.43.100)
 ```
 
-### Step 3: Start the Server
+### Step 3: Start Server
 
 ```bash
 cd robot_chassis/server
@@ -403,32 +346,25 @@ python app.py
 
 Open browser: `http://localhost:5000`
 
-### Step 4: Configure & Upload to ESP8266
+### Step 4: Configure & Upload
 
-Edit `src/config.h`:
-```cpp
-#define WIFI_SSID     "YourPhoneHotspot"
-#define WIFI_PASSWORD "HotspotPassword"
-#define SERVER_HOST   "192.168.43.100"  // Your PC's IP from Step 2
-```
-
-Upload:
+Edit `src/config.h` with your hotspot name, password, and PC IP. Then:
 ```bash
 cd robot_chassis
 pio run -t upload
 ```
 
-### Step 5: Power On & Drive
+### Step 5: Drive
 
-1. Power on the robot
-2. Dashboard shows "CONNECTED" in green
-3. Set destination in cm (e.g., X=0, Y=200 = 2 meters forward)
-4. Press "Go To Target" - robot navigates autonomously
-5. Press "Backtrack Home" to retrace its path back
+1. Power on the robot (battery switch)
+2. Wait ~3 seconds (gyro calibration — keep still!)
+3. Dashboard shows **CONNECTED** in green
+4. Set destination in cm → **Go To Target**
+5. Press **BACKTRACK HOME** to return
 
 ---
 
-## Dashboard Controls Reference
+## Dashboard Reference
 
 | Action | Button | Keyboard |
 |--------|--------|----------|
@@ -437,10 +373,28 @@ pio run -t upload
 | Turn left | LEFT | A or Arrow Left |
 | Turn right | RIGHT | D or Arrow Right |
 | Stop | STOP | Space |
-| Autonomous mode | AUTONOMOUS | - |
-| Backtrack home | BACKTRACK HOME | B |
-| Reset position to 0,0 | RESET POSITION | R |
-| Set destination | Go To Target | - |
+| Autonomous mode | AUTONOMOUS | — |
+| Return home | BACKTRACK HOME | B |
+| Reset position | RESET | R |
+| Set destination | Type X,Y in cm → Go To Target | — |
+| Run hardware tests | Test buttons in debug panel | — |
+
+---
+
+## Hardware Test Sequence
+
+Before assembling, test each component individually using the standalone tests in `test/`:
+
+| # | Test | What To Connect | Command |
+|---|------|----------------|---------|
+| 01 | ESP32 Basic | Just the board | `cd test/01_esp32_basic && pio run -t upload -t monitor` |
+| 02 | MPU6050 | + MPU6050 (SDA=11, SCL=12, 3.3V direct) | `cd test/02_mpu6050 && pio run -t upload -t monitor` |
+| 03 | Ultrasonic+Servo | + HC-SR04 + SG90 (needs 5V) | `cd test/03_ultrasonic_servo && ...` |
+| 04 | Motors | + TB6612FNG + motors (needs 7.4V) | `cd test/04_tb6612fng_motors && ...` |
+| 05 | Encoders | + 2 encoder modules (push by hand) | `cd test/05_encoders && ...` |
+| 06 | Battery | + voltage divider on GPIO1 | `cd test/06_battery_power && ...` |
+
+Each test is fully standalone with its own `platformio.ini`. Pass all tests before assembling the full robot.
 
 ---
 
@@ -448,42 +402,58 @@ pio run -t upload
 
 | Problem | Fix |
 |---------|-----|
-| Dashboard says DISCONNECTED | Check WiFi credentials in config.h. Check SERVER_HOST matches your PC's IP. Both must be on same hotspot |
-| Motors don't move | Check DRV8833 wiring. Check battery charged. Check SLP pin connected to 3.3V |
-| Distance always shows 999 | Check HC-SR04 wiring (Trigger=D0, Echo=D4). Needs 5V power |
-| Robot spins in circles | Left/right motor wires swapped at DRV8833 |
-| Robot drives backward | Swap (+) and (-) wires of BOTH motor channels |
-| Heading is wrong | Compass too close to motors. Mount it higher/farther. Calibrate by rotating robot 360° |
-| Encoder count stays 0 | Check encoder is on GPIO3 (RX pin). Serial disables after boot - this is normal |
-| Robot misses target by a lot | Normal for dead reckoning. Compass drift + wheel slip cause position error |
-| Hotspot won't connect | Must be 2.4GHz. Disable "auto-off" on hotspot. Double-check SSID spelling |
-| Grid map doesn't update | Check that encoder ticks are counting (position must change) |
-| Backtrack doesn't work | Need at least 20cm of travel to create first breadcrumb |
+| Dashboard says DISCONNECTED | Check WiFi SSID/password in config.h. Check SERVER_HOST = your PC's IP. Both on same hotspot? |
+| Motors don't move | Check TB6612 wiring. STBY pin → GPIO 17 (must be HIGH). VM → 7.4V. VCC → 3.3V |
+| Motors wrong direction | Swap AIN1/AIN2 wires (left) or BIN1/BIN2 (right) at TB6612 |
+| Left/right swapped | Swap AIN/BIN channel wires at TB6612 |
+| Distance shows 999 | HC-SR04 needs 5V (from buck converter). Check TRIG→GPIO18, ECHO→GPIO8 |
+| Heading doesn't change | MPU6050 not responding. Check I2C: SDA→GPIO11, SCL→GPIO12, VCC→3.3V **direct** |
+| Encoder stays at 0 | Check VCC→3.3V, OUT→GPIO13/14. Encoder disc must be on shaft, sensor facing slots |
+| Battery voltage wrong | Check voltage divider: 220K top + 33K bottom. Tap point → GPIO 1 |
+| Robot drifts off course | Normal for gyro-only heading. Recalibrate by keeping still at boot |
+| Servo doesn't move | ESP32 uses ESP32Servo library, not standard Servo. Check GPIO 9, needs 5V power |
+| WiFi drops frequently | Phone hotspot may auto-sleep. Disable auto-off in hotspot settings |
 
 ---
 
-## Key Concepts For Beginners
+## Key Concepts
 
 ### PWM (Pulse Width Modulation)
-Instead of just ON/OFF, PWM rapidly switches a pin on and off. The ratio of on-time to off-time controls motor speed. 0 = always off, 1023 = always on, 512 = half speed.
+Rapidly switches a pin on/off. The on-time ratio controls motor speed. 0 = always off, 1023 = always on, 512 = half speed. On ESP32-S3, this is done by dedicated LEDC hardware — no CPU overhead.
+
+### LEDC (LED Control)
+ESP32's hardware PWM peripheral. Has 8 independent channels, each with configurable frequency and resolution. We use 3: two for motors (5kHz, 10-bit) and one for servo (50Hz, auto-assigned).
 
 ### Interrupt
-A hardware feature that runs a tiny function instantly when a pin changes state. Used for the encoder - the ESP8266 counts every slot tick even while doing other work. Without interrupts, we'd miss ticks.
+Hardware feature that runs a tiny function instantly when a pin changes state. Used for encoders — the ESP32 counts every tick even while doing other work. All ESP32 GPIO pins support interrupts (unlike ESP8266 which had restrictions).
+
+### FreeRTOS Dual-Core
+The ESP32-S3 has two CPU cores. FreeRTOS (built into ESP32 Arduino) lets us run separate tasks on each core. `xTaskCreatePinnedToCore()` assigns a function to a specific core. We use this to run WiFi on Core 0 while the robot logic runs on Core 1.
+
+### Mutex
+A lock that prevents two cores from accessing shared data at the same time. When Core 1 writes sensor data and Core 0 reads it for WiFi, the mutex ensures one waits for the other. Prevents corrupted data.
 
 ### Dead Reckoning
-Estimating your position by measuring how far you've moved and in what direction, starting from a known point. Like walking with your eyes closed: you count steps and remember which way you turned. It drifts over time because small errors accumulate.
-
-### I2C Protocol
-A 2-wire communication bus (SDA = data, SCL = clock). Multiple sensors share the same 2 wires. Each sensor has a unique address (like phone numbers on a shared line).
+Estimating position by measuring movement from a known starting point. Like walking blindfolded: count steps, remember turns. Drifts over time because small errors accumulate. Our system uses dual encoders + gyro to minimize drift.
 
 ### A* Algorithm
-A pathfinding algorithm used in games and robotics. Imagine a grid of rooms. Some rooms have walls (obstacles). A* explores rooms closest to the goal first, keeps track of the shortest path, and guarantees finding the optimal route.
+A pathfinding algorithm used in games and robotics. Explores a grid of cells, prioritizing cells closest to the goal. Uses a heuristic (estimated remaining distance) to search efficiently. Guarantees finding the shortest path if one exists. Our version uses 8-directional movement with obstacle inflation for smoother, safer paths.
 
-### Sliding Window
-A technique where you keep a fixed-size view that moves with the data. Instead of storing the entire world map (which would need too much memory), we only store what's around the robot right now. Old data behind us scrolls off; new data ahead scrolls in.
+### Octile Distance
+The correct distance heuristic for 8-directional grids. Accounts for both straight moves (cost 10) and diagonal moves (cost 14 = sqrt(2) x 10). More accurate than Manhattan distance, which only counts horizontal + vertical.
+
+### Obstacle Inflation
+Adding a cost penalty to cells adjacent to obstacles. Instead of the robot pathfinding right along a wall (and potentially scraping it), inflation pushes the path a cell or two away from walls. Creates a safety margin.
+
+### Sliding Window Grid
+A fixed-size grid (40x40) that moves with the robot. When the robot approaches the edge, the entire grid shifts — old data scrolls off, new "unknown" cells scroll in. This gives unlimited range with fixed memory (1.6KB).
 
 ### Breadcrumb Trail
-Inspired by Hansel and Gretel. The robot drops position markers as it moves. To go home, it follows the markers in reverse. Simple, reliable, and works even when the map has changed (new obstacles appeared).
+The robot drops position markers every 20cm as it moves (up to 100 = 20m range). To return home, it follows the markers in reverse, using A* to navigate between each one. Works even if new obstacles appeared after the outbound trip.
+
+### Complementary Filter
+Blends two sensors: gyro (fast, accurate short-term, drifts long-term) with compass (slow, accurate long-term, noisy short-term). Our project is currently gyro-only, but the code supports adding a compass later with the formula:
+`heading = 0.98 * gyro_prediction + 0.02 * compass_reading`
 
 ### Client-Server Architecture
-The robot is a **client** - it sends data to and receives commands from the server. Your browser is also a client. The Flask **server** sits in the middle, storing state and relaying messages. Both clients connect via the phone hotspot's WiFi network.
+The robot is a **client** — sends data to and receives commands from the server. Your browser is also a client. The Flask **server** sits in the middle, storing state and relaying messages. All three connect through the phone hotspot.
