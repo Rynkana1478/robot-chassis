@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>4WD Robot Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Courier New', monospace;
+            background: #0a0a0a;
+            color: #c0c0c0;
+            padding: 16px;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #333;
+        }
+        header h1 { color: #00cccc; font-size: 1.3em; }
+        .conn-status {
+            padding: 4px 12px;
+            border-radius: 3px;
+            font-size: 0.85em;
+            font-weight: bold;
+        }
+        .conn-ok { background: #0a3a0a; color: #0f0; border: 1px solid #0f0; }
+        .conn-off { background: #3a0a0a; color: #f44; border: 1px solid #f44; }
+
+        .layout {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 16px;
+        }
+
+        .panel {
+            background: #111;
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 14px;
+        }
+        .panel h2 {
+            color: #00cccc;
+            font-size: 0.95em;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #222;
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+        }
+        .stat {
+            background: #0a0a0a;
+            padding: 6px 8px;
+            border-radius: 4px;
+            border: 1px solid #222;
+        }
+        .stat .label {
+            font-size: 0.65em;
+            color: #666;
+            text-transform: uppercase;
+        }
+        .stat .value {
+            font-size: 1em;
+            color: #0f0;
+            margin-top: 1px;
+        }
+        .stat.wide { grid-column: span 2; }
+
+        .dist-ok { color: #0f0; }
+        .dist-warn { color: #ff0; }
+        .dist-danger { color: #f44; }
+        .mode-auto { color: #0ff; }
+        .mode-manual { color: #f90; }
+
+        /* Destination */
+        .dest-form {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .dest-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        .dest-row label {
+            width: 70px;
+            color: #888;
+            font-size: 0.9em;
+        }
+        .dest-row input {
+            flex: 1;
+            background: #0a0a0a;
+            border: 1px solid #444;
+            color: #0f0;
+            padding: 7px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.95em;
+        }
+        .dest-row input:focus { outline: none; border-color: #0ff; }
+        .dest-row .unit { color: #555; font-size: 0.8em; width: 25px; }
+
+        .btn {
+            padding: 9px 14px;
+            border: 1px solid #444;
+            background: #1a1a1a;
+            color: #0f0;
+            font-family: monospace;
+            font-size: 0.9em;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: all 0.15s;
+        }
+        .btn:hover { background: #252525; border-color: #0f0; }
+        .btn:active { background: #0f0; color: #000; }
+        .btn-primary { border-color: #0ff; color: #0ff; }
+        .btn-primary:hover { background: #0a2a2a; }
+        .btn-primary:active { background: #0ff; color: #000; }
+        .btn-warn { border-color: #f90; color: #f90; }
+        .btn-warn:hover { background: #2a1a0a; }
+        .btn-warn:active { background: #f90; color: #000; }
+        .btn-auto { border-color: #0ff; color: #0ff; }
+        .btn-auto:active { background: #0ff; color: #000; }
+        .btn-stop { border-color: #f44; color: #f44; }
+        .btn-stop:hover { background: #2a0a0a; }
+        .btn-stop:active { background: #f44; color: #000; }
+
+        .btn-row { display: flex; gap: 6px; }
+        .btn-row .btn { flex: 1; text-align: center; }
+
+        .info-box {
+            margin-top: 8px;
+            padding: 8px;
+            background: #0a0a0a;
+            border-radius: 4px;
+            border: 1px solid #222;
+            font-size: 0.8em;
+            color: #888;
+        }
+        .info-box span { color: #0ff; }
+        .info-box .reached { color: #0f0; font-weight: bold; }
+        .info-box .tracking { color: #f90; }
+
+        /* Control pad */
+        .control-pad {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            grid-template-rows: 1fr 1fr 1fr;
+            gap: 6px;
+            max-width: 220px;
+            margin: 0 auto 12px;
+        }
+        .control-pad .btn { padding: 14px 6px; text-align: center; font-size: 1em; }
+        .pad-fwd { grid-column: 2; grid-row: 1; }
+        .pad-left { grid-column: 1; grid-row: 2; }
+        .pad-stop { grid-column: 2; grid-row: 2; }
+        .pad-right { grid-column: 3; grid-row: 2; }
+        .pad-back { grid-column: 2; grid-row: 3; }
+
+        .action-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            max-width: 220px;
+            margin: 12px auto 0;
+        }
+        .action-buttons .btn { width: 100%; text-align: center; }
+
+        /* Grid map */
+        .grid-map-container { margin-top: 10px; }
+        canvas#gridMap {
+            border: 1px solid #333;
+            border-radius: 4px;
+            width: 100%;
+            image-rendering: pixelated;
+            cursor: crosshair;
+        }
+        .map-legend {
+            display: flex;
+            gap: 12px;
+            margin-top: 5px;
+            font-size: 0.65em;
+            color: #666;
+        }
+        .legend-dot {
+            display: inline-block;
+            width: 8px; height: 8px;
+            border-radius: 2px;
+            margin-right: 3px;
+            vertical-align: middle;
+        }
+        .map-note {
+            font-size: 0.7em;
+            color: #555;
+            margin-top: 4px;
+        }
+
+        /* Debug panel */
+        .debug-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 16px;
+            margin-top: 16px;
+        }
+        .debug-console {
+            grid-column: span 2;
+            background: #000;
+            border: 1px solid #333;
+            border-radius: 4px;
+            padding: 8px;
+            font-size: 0.75em;
+            height: 260px;
+            overflow-y: auto;
+            line-height: 1.5;
+            color: #0f0;
+        }
+        .debug-console .log-line { white-space: pre-wrap; word-break: break-all; }
+        .debug-console .log-error { color: #f44; }
+        .debug-console .log-warn { color: #ff0; }
+        .debug-console .log-test { color: #0ff; }
+        .debug-console .log-ok { color: #0f0; }
+        .debug-console .log-time { color: #666; }
+
+        .test-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .test-buttons .btn { font-size: 0.8em; padding: 8px 10px; text-align: left; }
+        .btn-test { border-color: #0ff; color: #0ff; }
+        .btn-test:hover { background: #0a2a2a; }
+        .btn-test:active { background: #0ff; color: #000; }
+        .btn-test-all { border-color: #f90; color: #f90; font-weight: bold; }
+
+        .sys-stats {
+            display: flex;
+            gap: 14px;
+            margin-top: 6px;
+            font-size: 0.7em;
+            color: #555;
+        }
+        .sys-stats span { color: #888; }
+
+        @media (max-width: 900px) {
+            .layout { grid-template-columns: 1fr; }
+            .debug-row { grid-template-columns: 1fr; }
+            .debug-console { grid-column: span 1; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>4WD Robot Dashboard</h1>
+        <div id="connStatus" class="conn-status conn-off">DISCONNECTED</div>
+    </header>
+
+    <div class="layout">
+        <!-- STATUS PANEL -->
+        <div class="panel">
+            <h2>Status</h2>
+            <div class="stat-grid">
+                <div class="stat">
+                    <div class="label">Front</div>
+                    <div class="value" id="distFront">-- cm</div>
+                </div>
+                <div class="stat">
+                    <div class="label">Heading</div>
+                    <div class="value" id="heading">--</div>
+                </div>
+                <div class="stat">
+                    <div class="label">Left</div>
+                    <div class="value" id="distLeft">-- cm</div>
+                </div>
+                <div class="stat">
+                    <div class="label">Right</div>
+                    <div class="value" id="distRight">-- cm</div>
+                </div>
+                <div class="stat">
+                    <div class="label">Position (cm)</div>
+                    <div class="value" id="position">--, --</div>
+                </div>
+                <div class="stat">
+                    <div class="label">Grid Cell</div>
+                    <div class="value" id="gridPos">--, --</div>
+                </div>
+                <div class="stat">
+                    <div class="label">Traveled</div>
+                    <div class="value" id="totalDist">-- cm</div>
+                </div>
+                <div class="stat">
+                    <div class="label">Encoder</div>
+                    <div class="value" id="encTicks">--</div>
+                </div>
+                <div class="stat">
+                    <div class="label">Battery</div>
+                    <div class="value" id="battery">-- V</div>
+                </div>
+                <div class="stat">
+                    <div class="label">Path</div>
+                    <div class="value" id="pathLen">--</div>
+                </div>
+                <div class="stat">
+                    <div class="label">Avoid State</div>
+                    <div class="value" id="avoidState">--</div>
+                </div>
+                <div class="stat">
+                    <div class="label">Crumbs</div>
+                    <div class="value" id="crumbs">--</div>
+                </div>
+                <div class="stat wide">
+                    <div class="label">Mode</div>
+                    <div class="value" id="mode">--</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- DESTINATION PANEL -->
+        <div class="panel">
+            <h2>Destination (cm from start)</h2>
+            <div class="dest-form">
+                <div class="dest-row">
+                    <label>X</label>
+                    <input type="number" id="targetX" value="0" step="10">
+                    <span class="unit">cm</span>
+                </div>
+                <div class="dest-row">
+                    <label>Y</label>
+                    <input type="number" id="targetY" value="100" step="10">
+                    <span class="unit">cm</span>
+                </div>
+                <div class="btn-row">
+                    <button class="btn btn-primary" onclick="setTarget()">Go To Target</button>
+                    <button class="btn btn-warn" onclick="sendCmd('backtrack')">Backtrack</button>
+                </div>
+            </div>
+            <div class="info-box">
+                Target: <span id="curTarget">none</span><br>
+                Status: <span id="targetStatus">--</span>
+            </div>
+
+            <!-- Grid map -->
+            <div class="grid-map-container">
+                <h2 style="margin-top:8px">Sliding Grid Map</h2>
+                <canvas id="gridMap" width="200" height="200"></canvas>
+                <div class="map-legend">
+                    <span><span class="legend-dot" style="background:#0f0"></span> Robot</span>
+                    <span><span class="legend-dot" style="background:#f00"></span> Target</span>
+                    <span><span class="legend-dot" style="background:#666"></span> Grid</span>
+                </div>
+                <div class="map-note">Grid slides with robot. Range is unlimited.</div>
+            </div>
+        </div>
+
+        <!-- CONTROLS PANEL -->
+        <div class="panel">
+            <h2>Manual Controls</h2>
+            <div class="control-pad">
+                <button class="btn pad-fwd" onmousedown="sendCmd('forward')" onmouseup="sendCmd('stop')" ontouchstart="sendCmd('forward')" ontouchend="sendCmd('stop')">FWD</button>
+                <button class="btn pad-left" onmousedown="sendCmd('left')" onmouseup="sendCmd('stop')" ontouchstart="sendCmd('left')" ontouchend="sendCmd('stop')">LEFT</button>
+                <button class="btn btn-stop pad-stop" onclick="sendCmd('stop')">STOP</button>
+                <button class="btn pad-right" onmousedown="sendCmd('right')" onmouseup="sendCmd('stop')" ontouchstart="sendCmd('right')" ontouchend="sendCmd('stop')">RIGHT</button>
+                <button class="btn pad-back" onmousedown="sendCmd('back')" onmouseup="sendCmd('stop')" ontouchstart="sendCmd('back')" ontouchend="sendCmd('stop')">BACK</button>
+            </div>
+            <div class="action-buttons">
+                <button class="btn btn-auto" onclick="sendCmd('auto')">AUTONOMOUS</button>
+                <button class="btn btn-warn" onclick="sendCmd('backtrack')">BACKTRACK HOME</button>
+                <button class="btn" onclick="sendCmd('reset')">RESET POSITION</button>
+            </div>
+            <div class="info-box" style="margin-top:10px">
+                <strong>Keyboard:</strong> WASD / Arrows = drive, Space = stop<br>
+                <strong>B</strong> = backtrack, <strong>R</strong> = reset
+            </div>
+        </div>
+    </div>
+
+    <!-- DEBUG PANEL -->
+    <div class="debug-row">
+        <div class="debug-console" id="debugConsole">
+            <div class="log-line log-time">Waiting for robot connection...</div>
+        </div>
+        <div class="panel" style="padding:10px">
+            <h2>Hardware Tests</h2>
+            <div class="test-buttons">
+                <button class="btn btn-test-all" onclick="sendCmd('test_all')">RUN ALL TESTS</button>
+                <button class="btn btn-test" onclick="sendCmd('test_i2c')">I2C Bus Scan</button>
+                <button class="btn btn-test" onclick="sendCmd('test_mpu')">MPU6050 Gyro</button>
+                <button class="btn btn-test" onclick="sendCmd('test_compass')">Compass</button>
+                <button class="btn btn-test" onclick="sendCmd('test_ultrasonic')">Ultrasonic</button>
+                <button class="btn btn-test" onclick="sendCmd('test_servo')">Servo Sweep</button>
+                <button class="btn btn-test" onclick="sendCmd('test_motors')">Motors</button>
+                <button class="btn btn-test" onclick="sendCmd('test_encoder')">Encoder</button>
+                <button class="btn btn-test" onclick="sendCmd('test_battery')">Battery</button>
+                <button class="btn" onclick="clearLogs()" style="margin-top:8px;font-size:0.75em">Clear Logs</button>
+            </div>
+            <div class="sys-stats">
+                <span>RSSI: <span id="rssi">--</span>dBm</span>
+                <span>Heap: <span id="heap">--</span></span>
+                <span>Up: <span id="uptime">--</span></span>
+            </div>
+        </div>
+    </div>
+
+<script>
+const GRID_SIZE = {{ grid_size }};
+let debugLogIndex = 0;
+
+function fetchStatus() {
+    fetch('/api/status')
+        .then(r => r.json())
+        .then(updateDashboard)
+        .catch(() => setDisconnected());
+}
+
+function updateDashboard(d) {
+    // Connection
+    const conn = document.getElementById('connStatus');
+    if (d.connected) {
+        conn.textContent = 'CONNECTED';
+        conn.className = 'conn-status conn-ok';
+    } else {
+        conn.textContent = 'DISCONNECTED';
+        conn.className = 'conn-status conn-off';
+    }
+
+    setDist('distFront', d.front);
+    setDist('distLeft', d.left);
+    setDist('distRight', d.right);
+
+    document.getElementById('heading').textContent = d.heading.toFixed(1) + '\u00B0';
+    document.getElementById('position').textContent = d.pos_x.toFixed(1) + ', ' + d.pos_y.toFixed(1);
+    document.getElementById('gridPos').textContent = d.grid_x + ', ' + d.grid_y;
+    document.getElementById('totalDist').textContent = d.distance.toFixed(0) + ' cm';
+    document.getElementById('encTicks').textContent = d.enc_ticks;
+    document.getElementById('crumbs').textContent = d.crumbs;
+
+    const battEl = document.getElementById('battery');
+    battEl.textContent = d.battery.toFixed(1) + ' V';
+    battEl.style.color = d.battery < 4.5 ? '#f44' : '#0f0';
+
+    document.getElementById('pathLen').textContent = d.path_length + ' steps';
+    document.getElementById('avoidState').textContent = d.state_name;
+
+    // Mode
+    const modeEl = document.getElementById('mode');
+    if (d.backtracking) {
+        modeEl.textContent = 'BACKTRACKING';
+        modeEl.className = 'value';
+        modeEl.style.color = '#f90';
+    } else if (d.auto) {
+        modeEl.textContent = 'AUTONOMOUS';
+        modeEl.className = 'value mode-auto';
+        modeEl.style.color = '';
+    } else {
+        modeEl.textContent = 'MANUAL';
+        modeEl.className = 'value mode-manual';
+        modeEl.style.color = '';
+    }
+
+    // Target info
+    const targetEl = document.getElementById('curTarget');
+    if (d.has_target) {
+        targetEl.textContent = 'X:' + d.target_wx.toFixed(0) + ' Y:' + d.target_wy.toFixed(0) + ' cm';
+    } else {
+        targetEl.textContent = 'none';
+    }
+
+    const statusEl = document.getElementById('targetStatus');
+    if (d.backtracking) {
+        statusEl.textContent = 'Backtracking... (' + d.crumbs + ' crumbs)';
+        statusEl.className = 'tracking';
+    } else if (d.target_reached) {
+        statusEl.textContent = 'TARGET REACHED';
+        statusEl.className = 'reached';
+    } else if (d.has_target) {
+        const dx = d.target_wx - d.pos_x;
+        const dy = d.target_wy - d.pos_y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        statusEl.textContent = 'Navigating... ' + dist.toFixed(0) + ' cm away';
+        statusEl.className = 'tracking';
+    } else {
+        statusEl.textContent = 'No target set';
+        statusEl.className = '';
+    }
+
+    // System stats
+    document.getElementById('rssi').textContent = d.wifi_rssi || '--';
+    document.getElementById('heap').textContent = d.free_heap ? (d.free_heap / 1024).toFixed(1) + 'KB' : '--';
+    if (d.uptime) {
+        const m = Math.floor(d.uptime / 60);
+        const s = d.uptime % 60;
+        document.getElementById('uptime').textContent = m + 'm' + s + 's';
+    }
+
+    drawGrid(d);
+}
+
+function setDist(id, val) {
+    const el = document.getElementById(id);
+    const display = val > 400 ? '> 400' : val.toFixed(1);
+    el.textContent = display + ' cm';
+    if (val < 15) el.className = 'value dist-danger';
+    else if (val < 30) el.className = 'value dist-warn';
+    else el.className = 'value dist-ok';
+}
+
+function setDisconnected() {
+    document.getElementById('connStatus').textContent = 'SERVER ERROR';
+    document.getElementById('connStatus').className = 'conn-status conn-off';
+}
+
+function drawGrid(d) {
+    const canvas = document.getElementById('gridMap');
+    const ctx = canvas.getContext('2d');
+    const cellW = canvas.width / GRID_SIZE;
+    const cellH = canvas.height / GRID_SIZE;
+
+    ctx.fillStyle = '#0a0a0a';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Grid lines
+    ctx.strokeStyle = '#1a1a1a';
+    ctx.lineWidth = 0.5;
+    for (let i = 0; i <= GRID_SIZE; i++) {
+        ctx.beginPath();
+        ctx.moveTo(i * cellW, 0); ctx.lineTo(i * cellW, canvas.height);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, i * cellH); ctx.lineTo(canvas.width, i * cellH);
+        ctx.stroke();
+    }
+
+    // Robot position (green)
+    const rx = d.grid_x, ry = d.grid_y;
+    if (rx >= 0 && rx < GRID_SIZE && ry >= 0 && ry < GRID_SIZE) {
+        ctx.fillStyle = '#00ff00';
+        ctx.fillRect(rx * cellW + 1, ry * cellH + 1, cellW - 2, cellH - 2);
+
+        // Heading line
+        const cx = rx * cellW + cellW / 2;
+        const cy = ry * cellH + cellH / 2;
+        const hRad = d.heading * Math.PI / 180;
+        ctx.strokeStyle = '#00ff00';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx + cellW * 1.2 * Math.sin(hRad), cy - cellH * 1.2 * Math.cos(hRad));
+        ctx.stroke();
+    }
+
+    // Target position (red) - only if on current grid view
+    const tx = d.target_x, ty = d.target_y;
+    if (tx >= 0 && tx < GRID_SIZE && ty >= 0 && ty < GRID_SIZE && d.has_target) {
+        ctx.fillStyle = '#ff0000';
+        ctx.fillRect(tx * cellW + 1, ty * cellH + 1, cellW - 2, cellH - 2);
+        // X mark
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(tx*cellW+2, ty*cellH+2); ctx.lineTo((tx+1)*cellW-2, (ty+1)*cellH-2); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo((tx+1)*cellW-2, ty*cellH+2); ctx.lineTo(tx*cellW+2, (ty+1)*cellH-2); ctx.stroke();
+    } else if (d.has_target) {
+        // Target off-screen: draw arrow at edge pointing toward it
+        const dx = d.target_wx - d.pos_x;
+        const dy = d.target_wy - d.pos_y;
+        const angle = Math.atan2(dx, dy);
+        const edgeX = Math.min(Math.max(GRID_SIZE/2 + Math.sin(angle) * GRID_SIZE/2, 0), GRID_SIZE-1);
+        const edgeY = Math.min(Math.max(GRID_SIZE/2 - Math.cos(angle) * GRID_SIZE/2, 0), GRID_SIZE-1);
+        ctx.fillStyle = '#f44';
+        ctx.beginPath();
+        ctx.arc(edgeX * cellW + cellW/2, edgeY * cellH + cellH/2, 4, 0, Math.PI*2);
+        ctx.fill();
+    }
+}
+
+// --- Commands ---
+function sendCmd(cmd) {
+    fetch('/api/control', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({cmd: cmd})
+    });
+}
+
+function setTarget() {
+    const x = parseFloat(document.getElementById('targetX').value) || 0;
+    const y = parseFloat(document.getElementById('targetY').value) || 0;
+    fetch('/api/target', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({x: x, y: y})
+    });
+}
+
+// --- Keyboard ---
+const keyMap = {
+    'ArrowUp': 'forward', 'w': 'forward', 'W': 'forward',
+    'ArrowDown': 'back',  's': 'back',    'S': 'back',
+    'ArrowLeft': 'left',  'a': 'left',    'A': 'left',
+    'ArrowRight': 'right','d': 'right',   'D': 'right',
+    ' ': 'stop',
+    'b': 'backtrack', 'B': 'backtrack',
+    'r': 'reset', 'R': 'reset'
+};
+const keysDown = new Set();
+
+document.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'INPUT') return;
+    const cmd = keyMap[e.key];
+    if (cmd && !keysDown.has(e.key)) {
+        keysDown.add(e.key);
+        sendCmd(cmd);
+    }
+});
+
+document.addEventListener('keyup', (e) => {
+    if (e.target.tagName === 'INPUT') return;
+    const cmd = keyMap[e.key];
+    if (cmd && cmd !== 'stop' && cmd !== 'backtrack' && cmd !== 'reset') {
+        keysDown.delete(e.key);
+        if (keysDown.size === 0) sendCmd('stop');
+    } else {
+        keysDown.delete(e.key);
+    }
+});
+
+// Prevent touch scroll on control buttons
+document.querySelectorAll('.control-pad .btn').forEach(btn => {
+    btn.addEventListener('touchstart', e => e.preventDefault());
+});
+
+// --- Debug log polling ---
+function fetchDebugLogs() {
+    fetch('/api/debug/logs?since=' + debugLogIndex)
+        .then(r => r.json())
+        .then(data => {
+            if (data.logs && data.logs.length > 0) {
+                const console = document.getElementById('debugConsole');
+                data.logs.forEach(line => {
+                    const div = document.createElement('div');
+                    div.className = 'log-line';
+                    if (line.includes('ERROR')) div.className += ' log-error';
+                    else if (line.includes('WARNING')) div.className += ' log-warn';
+                    else if (line.includes('[TEST]')) div.className += ' log-test';
+                    else if (line.includes(' OK')) div.className += ' log-ok';
+                    div.textContent = line;
+                    console.appendChild(div);
+                });
+                // Auto-scroll to bottom
+                console.scrollTop = console.scrollHeight;
+                // Keep last 500 lines in DOM
+                while (console.children.length > 500) {
+                    console.removeChild(console.firstChild);
+                }
+            }
+            debugLogIndex = data.total;
+        })
+        .catch(() => {});
+}
+
+function clearLogs() {
+    fetch('/api/debug/clear', {method: 'POST'});
+    document.getElementById('debugConsole').innerHTML = '<div class="log-line log-time">Logs cleared</div>';
+    debugLogIndex = 0;
+}
+
+setInterval(fetchStatus, 500);
+setInterval(fetchDebugLogs, 500);
+fetchStatus();
+fetchDebugLogs();
+</script>
+</body>
+</html>
