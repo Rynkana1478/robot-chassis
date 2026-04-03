@@ -1,60 +1,66 @@
-# ESP8266 4WD Robot Chassis
+# ESP32-S3 4WD Robot Chassis
 
-Autonomous 4WD robot with obstacle avoidance, A* pathfinding, and web dashboard control via phone hotspot.
+Autonomous 4WD robot with obstacle avoidance, A* pathfinding, and web dashboard control. Dual-core ESP32-S3 runs sensors and WiFi independently.
 
 ## Features
 
-- **Obstacle avoidance** - Ultrasonic sensor on servo sweep, non-blocking safety system
-- **A* pathfinding** - Sliding 20x20 grid with unlimited range
-- **Backtracking** - Breadcrumb trail to retrace path home
-- **Web dashboard** - Live sensor data, manual controls, destination input, grid map
-- **Phone hotspot LAN** - ESP8266 + PC both connect to phone hotspot
+- **Obstacle avoidance** — Ultrasonic sensor on servo sweep, non-blocking state machine
+- **A* pathfinding** — 8-directional, obstacle inflation, path smoothing, sliding 40x40 grid (unlimited range)
+- **Backtracking** — 100 breadcrumbs (20m range) to retrace path home
+- **Dual-core** — Core 1 runs robot logic at 20Hz, Core 0 handles WiFi (never blocks)
+- **Web dashboard** — Live sensor data, manual controls, destination input, grid map, hardware tests
+- **Built-in charging** — 2S BMS + USB-C charger, never remove batteries
+- **WiFi debug logger** — Stream logs to dashboard, 9 hardware test commands
 
 ## Hardware
 
 | Component | Purpose |
 |-----------|---------|
-| NodeMCU ESP8266 | Main controller (WiFi built-in) |
-| DRV8833 | Dual H-bridge motor driver |
+| ESP32-S3 DevKitC-1 | Dual-core 240MHz, WiFi+BLE, 34 GPIO |
+| TB6612FNG | Motor driver, 1.2A/ch, separate PWM+direction |
 | 4WD Smart Car Chassis | Frame + 4 TT motors + wheels |
-| HC-SR04 | Ultrasonic distance sensor |
-| SG90 Servo | Sweeps ultrasonic left/center/right |
-| MPU6050 | Gyroscope + accelerometer |
-| Compass (QMC5883L) | Magnetic heading |
-| Speed Encoder (x1) | Wheel odometry |
-| 6V Battery | Power supply |
+| HC-SR04 + SG90 Servo | Ultrasonic distance + sweep left/center/right |
+| MPU6050 | Gyroscope heading (integrated over time) |
+| Speed Encoders (x2) | Left + right wheel odometry |
+| 2S 18650 (7.4V) | Rechargeable Li-ion power |
+| 2S BMS 16A | Battery protection (overcharge/discharge/short) |
+| USB-C 2S Charger | Built-in charging via phone charger cable |
+| Buck Converter | 7.4V → 5V for ESP32 + sensors |
 
-## Pin Wiring
+## Pin Wiring (ESP32-S3)
 
-| ESP8266 Pin | Connection |
-|-------------|------------|
-| D0 (GPIO16) | DRV8833 BIN1 (right motors fwd) |
-| D1 (GPIO5) | I2C SCL |
-| D2 (GPIO4) | I2C SDA |
-| D3 (GPIO0) | Servo signal |
-| D4 (GPIO2) | HC-SR04 Trigger |
-| D5 (GPIO14) | DRV8833 AIN1 (left motors fwd) |
-| D6 (GPIO12) | DRV8833 AIN2 (left motors bwd) |
-| D7 (GPIO13) | HC-SR04 Echo |
-| D8 (GPIO15) | DRV8833 BIN2 (right motors bwd) |
-| RX (GPIO3) | Wheel encoder |
-| A0 | Battery voltage (via divider) |
+| GPIO | Connection |
+|------|------------|
+| 4 | TB6612 AIN1 (left dir) |
+| 5 | TB6612 AIN2 (left dir) |
+| 6 | TB6612 PWMA (left speed) |
+| 7 | TB6612 BIN1 (right dir) |
+| 15 | TB6612 BIN2 (right dir) |
+| 16 | TB6612 PWMB (right speed) |
+| 17 | TB6612 STBY |
+| 18 | HC-SR04 Trigger |
+| 8 | HC-SR04 Echo |
+| 9 | Servo signal (50Hz LEDC) |
+| 11 | I2C SDA (MPU6050) |
+| 12 | I2C SCL (MPU6050) |
+| 13 | Left encoder |
+| 14 | Right encoder |
+| 1 | Battery ADC (via divider) |
 
 ## Quick Setup
 
 ### Prerequisites
 
-- [Python 3](https://www.python.org/downloads/) (for the dashboard server)
+- [Python 3](https://www.python.org/downloads/)
 - [PlatformIO CLI](https://platformio.org/install/cli) or [VS Code + PlatformIO extension](https://platformio.org/install/ide?install=vscode)
-- Phone with hotspot capability
+- Phone with hotspot
 
 ### 1. Clone & Install
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/robot-chassis.git
+git clone https://github.com/Rynkana1478/robot-chassis.git
 cd robot-chassis
 
-# Install Python server dependencies
 cd server
 pip install -r requirements.txt
 cd ..
@@ -62,34 +68,28 @@ cd ..
 
 ### 2. Connect to Phone Hotspot
 
-1. Turn on phone hotspot (must be **2.4GHz**, ESP8266 doesn't support 5GHz)
-2. Connect your PC to the hotspot
+1. Turn on phone hotspot (2.4GHz)
+2. Connect your PC to the same hotspot
 3. Find your PC's IP:
    ```bash
    # Windows
    ipconfig
    # Look for "Wireless LAN" → IPv4 Address
-   # Android hotspot: typically 192.168.43.x
-   # iPhone hotspot: typically 172.20.10.x
    ```
 
-### 3. Configure ESP8266
+### 3. Configure
 
 Edit `src/config.h`:
-
 ```cpp
-#define WIFI_SSID     "YourPhoneHotspot"
-#define WIFI_PASSWORD "HotspotPassword"
-#define SERVER_HOST   "192.168.43.100"  // Your PC's IP from step 2
+#define WIFI_SSID     "YourHotspot"
+#define WIFI_PASSWORD "Password"
+#define SERVER_HOST   "192.168.43.100"  // Your PC's IP
 ```
 
 ### 4. Upload Firmware
 
 ```bash
-# PlatformIO CLI
 pio run -t upload
-
-# Or use VS Code PlatformIO: click Upload button
 ```
 
 ### 5. Start Dashboard
@@ -99,64 +99,88 @@ cd server
 python app.py
 ```
 
-Open browser: **http://localhost:5000**
+Open: **http://localhost:5000**
 
-### 6. Power On Robot
+### 6. Drive
 
-Dashboard should show **CONNECTED** in green. You're ready to drive.
+Dashboard shows **CONNECTED** → ready to go.
 
-## Dashboard Controls
+## Controls
 
 | Action | Button | Keyboard |
 |--------|--------|----------|
-| Drive | FWD/BACK/LEFT/RIGHT | WASD or Arrow Keys |
+| Drive | FWD / BACK / LEFT / RIGHT | WASD or Arrow Keys |
 | Stop | STOP | Space |
-| Autonomous mode | AUTONOMOUS | - |
-| Return to start | BACKTRACK HOME | B |
+| Autonomous | AUTONOMOUS | — |
+| Return home | BACKTRACK HOME | B |
 | Reset position | RESET | R |
-| Set destination | Type X,Y in cm → Go To Target | - |
+| Set destination | Type X,Y (cm) → Go To Target | — |
+| Hardware tests | RUN ALL TESTS (debug panel) | — |
 
 ## Project Structure
 
 ```
 robot_chassis/
-├── src/                        # ESP8266 firmware
-│   ├── config.h                # Pin assignments, thresholds, WiFi config
-│   ├── encoder.h               # Wheel encoder with direction tracking
-│   ├── motors.h                # DRV8833 4WD motor control
-│   ├── sensors.h               # Non-blocking ultrasonic sweep + compass
-│   ├── avoidance.h             # Reactive obstacle avoidance state machine
-│   ├── pathfinder.h            # A* pathfinding on sliding grid + backtrack
-│   └── robot_main.cpp          # Main loop, WiFi client, telemetry
-├── server/                     # PC-side dashboard server
-│   ├── app.py                  # Flask REST API
-│   ├── requirements.txt        # Python dependencies
+├── src/                            # ESP32-S3 firmware
+│   ├── config.h                    # Pins, speeds, WiFi, thresholds
+│   ├── encoder.h                   # Dual encoder differential odometry
+│   ├── motors.h                    # TB6612FNG with LEDC PWM
+│   ├── sensors.h                   # Ultrasonic sweep + MPU6050 gyro heading
+│   ├── avoidance.h                 # Non-blocking obstacle avoidance
+│   ├── pathfinder.h                # A* with 8-dir, inflation, smoothing
+│   ├── debug.h                     # WiFi debug log buffer
+│   └── robot_main.cpp              # Dual-core main + WiFi task + tests
+├── server/                         # PC dashboard server
+│   ├── app.py                      # Flask REST API
+│   ├── requirements.txt
 │   └── templates/
-│       └── dashboard.html      # Web dashboard UI
-├── platformio.ini              # Build configuration
-├── component_list.md           # Full BOM + wiring diagrams
-├── WIRING_AND_ASSEMBLY.md      # Step-by-step assembly + wire checklist
-└── GUIDE.md                    # Beginner-friendly explanation of everything
+│       └── dashboard.html          # Dashboard UI + debug console
+├── test/                           # Standalone hardware tests
+│   ├── compass_mpu_test/           # MPU6050 validation
+│   └── drv8833_encoder_test/       # Motor + encoder validation
+├── platformio.ini                  # ESP32-S3 build config
+├── component_list.md               # Parts list + wiring diagrams
+├── WIRING_AND_ASSEMBLY.md          # Step-by-step build guide
+└── GUIDE.md                        # Beginner explanation of everything
 ```
 
 ## Architecture
 
 ```
 Phone Hotspot (2.4GHz WiFi)
-    ├── ESP8266 Robot (client)
-    │     ├── Every 100ms: read sensors, avoid obstacles, follow path
-    │     └── Every 200ms: POST telemetry, GET commands
-    │
-    └── PC (Flask server)
-          ├── Stores robot state
-          ├── Serves web dashboard
-          └── Queues user commands
+  │
+  ├── ESP32-S3 Robot
+  │     ├── Core 1: Sensors + avoidance + pathfinding (20Hz)
+  │     └── Core 0: WiFi telemetry POST + command GET (5Hz)
+  │
+  └── PC (Flask server)
+        ├── Stores robot state
+        ├── Serves web dashboard
+        ├── Queues user commands
+        └── Collects debug logs
 
 Priority: Safety (avoidance) > Navigation (pathfinding) > Manual control
 ```
 
+## Power System
+
+```
+USB-C charger cable
+  └── [2S Charger Module] ── [2S BMS 16A] ── [2x 18650 cells]
+                                    │
+                              Protected 7.4V
+                                    │
+                    ┌───────────────┼────────────────┐
+                    │               │                │
+              [Buck → 5V]     TB6612 VM         [Voltage divider]
+                    │          (motors)          → ESP32 ADC
+              ┌─────┴─────┐
+          ESP32 5V    HC-SR04
+                      Servo
+```
+
 ## Documentation
 
-- **[GUIDE.md](GUIDE.md)** - How everything works (concepts, algorithms, accuracy)
-- **[WIRING_AND_ASSEMBLY.md](WIRING_AND_ASSEMBLY.md)** - Build instructions with diagrams
-- **[component_list.md](component_list.md)** - Parts list and pin assignments
+- **[GUIDE.md](GUIDE.md)** — How everything works (algorithms, concepts, accuracy)
+- **[WIRING_AND_ASSEMBLY.md](WIRING_AND_ASSEMBLY.md)** — Build instructions + wire checklist
+- **[component_list.md](component_list.md)** — Parts list + pin map + wiring diagrams
