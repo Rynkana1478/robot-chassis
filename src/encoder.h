@@ -4,88 +4,97 @@
 #include <Arduino.h>
 #include "config.h"
 
-// Single wheel encoder for odometry
-// FIX BUG 3: Tracks motor direction to count forward/backward correctly.
+// Dual wheel encoders with differential odometry
+// Tracks position (X,Y) and can detect turns accurately
 
-#define ENCODER_PIN        3        // GPIO3 (RX)
-#define TICKS_PER_REV      20
-#define WHEEL_DIAMETER_CM  6.5
-#define WHEEL_CIRCUMF_CM   20.42    // PI * 6.5
-#define CM_PER_TICK        1.021    // WHEEL_CIRCUMF / TICKS_PER_REV
+volatile long encLeftCount  = 0;
+volatile long encRightCount = 0;
+volatile int8_t encLeftDir  = 1;
+volatile int8_t encRightDir = 1;
 
-// Volatile counter for ISR - now tracks signed direction
-volatile long encoderCount = 0;
-volatile int8_t encoderDir = 1;  // +1 = forward, -1 = backward, 0 = stopped
-
-void IRAM_ATTR encoderISR() {
-    encoderCount += encoderDir;
-}
+void IRAM_ATTR encLeftISR()  { encLeftCount  += encLeftDir; }
+void IRAM_ATTR encRightISR() { encRightCount += encRightDir; }
 
 class Encoder {
 public:
     float posX = 0;
     float posY = 0;
     float totalDistCm = 0;
+    float encoderHeading = 0;  // heading estimated from differential encoders (radians)
 
     void begin() {
-        Serial.end();
-
-        pinMode(ENCODER_PIN, INPUT_PULLUP);
-        attachInterrupt(digitalPinToInterrupt(ENCODER_PIN),
-                        encoderISR, RISING);
-
-        encoderCount = 0;
-        encoderDir = 1;
-        prevCount = 0;
+        pinMode(ENCODER_L_PIN, INPUT_PULLUP);
+        pinMode(ENCODER_R_PIN, INPUT_PULLUP);
+        attachInterrupt(digitalPinToInterrupt(ENCODER_L_PIN), encLeftISR, RISING);
+        attachInterrupt(digitalPinToInterrupt(ENCODER_R_PIN), encRightISR, RISING);
+        encLeftCount = 0;
+        encRightCount = 0;
+        prevLeft = 0;
+        prevRight = 0;
     }
 
-    // Call from motors to set current direction
-    // Must be called whenever motor direction changes
     static void setDirection(int8_t dir) {
-        noInterrupts();
-        encoderDir = dir; // +1=forward, -1=backward, 0=stopped/turning
-        interrupts();
+        encLeftDir = dir;
+        encRightDir = dir;
+    }
+
+    static void setDirectionLR(int8_t left, int8_t right) {
+        encLeftDir = left;
+        encRightDir = right;
     }
 
     void update(float headingRad) {
-        noInterrupts();
-        long count = encoderCount;
-        interrupts();
+        long left, right;
+        portENTER_CRITICAL(&mux);
+        left  = encLeftCount;
+        right = encRightCount;
+        portEXIT_CRITICAL(&mux);
 
-        long delta = count - prevCount;
-        prevCount = count;
+        long dL = left - prevLeft;
+        long dR = right - prevRight;
+        prevLeft  = left;
+        prevRight = right;
 
-        float distCm = delta * CM_PER_TICK; // now signed!
-        totalDistCm += abs(distCm);
+        // Differential drive odometry
+        float distL = dL * CM_PER_TICK;
+        float distR = dR * CM_PER_TICK;
+        float distAvg = (distL + distR) / 2.0;
 
-        // Update position using heading
-        posX += distCm * sin(headingRad);
-        posY += distCm * cos(headingRad);
+        totalDistCm += abs(distAvg);
+
+        // Update position using provided heading (from compass+gyro fusion)
+        posX += distAvg * sin(headingRad);
+        posY += distAvg * cos(headingRad);
+
+        // Also compute heading change from encoder differential
+        // (used as a sanity check, not primary heading source)
+        float dTheta = (distR - distL) / WHEEL_BASE_CM;
+        encoderHeading += dTheta;
     }
 
-    // FIX BUG 7: Use floor() instead of int cast for negative coords
-    int getGridX() {
-        return (int)floor(posX / CELL_SIZE_CM) + (GRID_SIZE / 2);
-    }
-
-    int getGridY() {
-        return (GRID_SIZE / 2) - (int)floor(posY / CELL_SIZE_CM);
-    }
+    int getGridX() { return (int)floor(posX / CELL_SIZE_CM) + (GRID_SIZE / 2); }
+    int getGridY() { return (GRID_SIZE / 2) - (int)floor(posY / CELL_SIZE_CM); }
 
     void resetPosition() {
-        noInterrupts();
-        encoderCount = 0;
-        interrupts();
-        prevCount = 0;
+        portENTER_CRITICAL(&mux);
+        encLeftCount = 0;
+        encRightCount = 0;
+        portEXIT_CRITICAL(&mux);
+        prevLeft = 0;
+        prevRight = 0;
         posX = 0;
         posY = 0;
         totalDistCm = 0;
+        encoderHeading = 0;
     }
 
-    long getCount() { return encoderCount; }
+    long getLeftCount()  { return encLeftCount; }
+    long getRightCount() { return encRightCount; }
 
 private:
-    long prevCount = 0;
+    long prevLeft = 0;
+    long prevRight = 0;
+    portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 };
 
-#endif // ENCODER_H
+#endif

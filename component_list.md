@@ -1,94 +1,87 @@
-# Robotic Chassis - Component List
-## Processor: NodeMCU ESP8266 (ESP-12E)
-
----
+# Robot Chassis - Component List (v2 - ESP32-S3 Upgrade)
 
 ## 1. Core Electronics
 
-| Component | Qty | Purpose |
-|-----------|-----|---------|
-| NodeMCU ESP8266 (ESP-12E) | 1 | Main processor, WiFi-enabled |
-| DRV8833 Motor Driver Module | 1 | Dual H-bridge, drives 2 motor channels |
-| 6V Battery Pack | 1 | Power supply for motors and logic |
+| Component | Qty | Price | Purpose |
+|-----------|-----|-------|---------|
+| ESP32-S3 DevKitC-1 | 1 | ~$15 | Dual-core processor, WiFi+BLE, 34 GPIO |
+| TB6612FNG Motor Driver | 1 | ~$2 | Dual H-bridge, 1.2A/ch, separate PWM+DIR |
+| 2S 18650 Battery Holder | 1 | ~$0.50 | 7.4V power |
+| 18650 Li-Ion Cells (3.7V) | 2 | ~$3 | Rechargeable, high current |
 
 ## 2. Motors & Drivetrain
 
-| Component | Qty | Purpose |
-|-----------|-----|---------|
-| 4WD Smart Car Chassis Frame | 1 | Includes 4x TT gear motors + 4x wheels |
-| TT Gear Motor (3-6V DC) | 4 | Included with chassis (left pair + right pair) |
-| Rubber Wheel (65mm) | 4 | Included with chassis |
+| Component | Qty | Price | Purpose |
+|-----------|-----|-------|---------|
+| 4WD Smart Car Chassis | 1 | (have) | Frame + 4 TT motors + 4 wheels |
 
-**Wiring:** Left-side 2 motors wired in parallel to DRV8833 Channel A.
-Right-side 2 motors wired in parallel to DRV8833 Channel B.
+## 3. Sensors
 
-## 3. Sensors & Encoders
-
-| Component | Qty | Purpose |
-|-----------|-----|---------|
-| HC-SR04 Ultrasonic Sensor | 1 | Front-mounted obstacle detection |
-| SG90 Servo Motor | 1 | Sweeps ultrasonic sensor left/center/right |
-| MPU6050 (Gyro + Accelerometer) | 1 | Orientation and heading tracking |
-| Compass Module (HMC5883L/QMC5883L) | 1 | Magnetic heading for pathfinding |
-| Speed Encoder Module (slot/disc) | 1 | Wheel odometry for position tracking |
+| Component | Qty | Price | Purpose |
+|-----------|-----|-------|---------|
+| HC-SR04 Ultrasonic | 1 | (have) | Obstacle distance |
+| SG90 Servo | 1 | (have) | Sweeps ultrasonic L/C/R |
+| MPU6050 | 1 | (have) | Gyro (fast heading) + Accel (tilt) |
+| QMC5883L Compass (0x0D) | 1 | ~$1.50 | Magnetic heading (drift correction) |
+| Speed Encoder Module | 2 | ~$1.50 | Left + right wheel odometry |
 
 ## 4. Hardware
 
-| Component | Qty | Purpose |
-|-----------|-----|---------|
-| Breadboard (half-size) | 1 | Prototyping connections |
-| Jumper Wires (M-M, M-F, F-F) | 30 | Wiring |
-| Standoffs + Screws (M3) | 8 | Sensor/board mounting |
+| Component | Qty | Price | Purpose |
+|-----------|-----|-------|---------|
+| Breadboard (half-size) | 1 | (have) | Prototyping |
+| Jumper Wires | 30 | (have) | Wiring |
+| Standoffs + Screws (M3) | 8 | (have) | Mounting |
+
+**Total: ~$23.50 / Budget: $25**
 
 ---
 
-## Pin Assignment (ESP8266 NodeMCU)
+## Pin Assignment (ESP32-S3 DevKitC-1)
 
-| GPIO Pin | Assignment |
-|----------|------------|
-| D1 (GPIO5) | I2C SCL (MPU6050, Compass) |
-| D2 (GPIO4) | I2C SDA (MPU6050, Compass) |
-| D3 (GPIO0) | Servo Signal (ultrasonic sweep) |
-| D4 (GPIO2) | Ultrasonic Trigger |
-| D7 (GPIO13) | Ultrasonic Echo |
-| D5 (GPIO14) | DRV8833 AIN1 (Left motors forward) |
-| D6 (GPIO12) | DRV8833 AIN2 (Left motors backward) |
-| D0 (GPIO16) | DRV8833 BIN1 (Right motors forward) |
-| D8 (GPIO15) | DRV8833 BIN2 (Right motors backward) |
-| RX (GPIO3) | Wheel Encoder (Serial disabled after boot) |
-| A0 | Battery voltage monitor (via voltage divider) |
+| GPIO | Assignment | Notes |
+|------|------------|-------|
+| 4 | TB6612 AIN1 | Left motor direction 1 |
+| 5 | TB6612 AIN2 | Left motor direction 2 |
+| 6 | TB6612 PWMA | Left motor speed (LEDC) |
+| 7 | TB6612 BIN1 | Right motor direction 1 |
+| 15 | TB6612 BIN2 | Right motor direction 2 |
+| 16 | TB6612 PWMB | Right motor speed (LEDC) |
+| 17 | TB6612 STBY | Standby (HIGH=active) |
+| 18 | HC-SR04 TRIG | Ultrasonic trigger |
+| 8 | HC-SR04 ECHO | Ultrasonic echo |
+| 9 | Servo Signal | SG90 sweep |
+| 11 | I2C SDA | MPU6050 + QMC5883L |
+| 12 | I2C SCL | MPU6050 + QMC5883L |
+| 13 | Encoder Left | Left wheel ticks |
+| 14 | Encoder Right | Right wheel ticks |
+| 1 | Battery ADC | Via voltage divider (ADC1 channel) |
 
-## Wiring Diagram Notes
-
-### DRV8833 Connections
+### TB6612FNG Wiring
 ```
-DRV8833 Pin    ->  Connection
------------        ----------
-VCC            ->  6V Battery +
-GND            ->  Battery GND + ESP GND (common ground)
-AIN1           ->  ESP D5 (GPIO14)
-AIN2           ->  ESP D6 (GPIO12)
-BIN1           ->  ESP D0 (GPIO16)
-BIN2           ->  ESP D8 (GPIO15)
-AOUT1          ->  Left Front Motor +
-AOUT2          ->  Left Front Motor - (parallel with Left Rear Motor)
-BOUT1          ->  Right Front Motor +
-BOUT2          ->  Right Front Motor - (parallel with Right Rear Motor)
-```
-
-### I2C Bus (shared)
-```
-MPU6050 SDA  ->  ESP D2 (GPIO4)
-MPU6050 SCL  ->  ESP D1 (GPIO5)
-Compass SDA  ->  ESP D2 (GPIO4)  (same bus)
-Compass SCL  ->  ESP D1 (GPIO5)  (same bus)
-MPU6050 VCC  ->  3.3V from ESP
-Compass VCC  ->  3.3V from ESP
+TB6612FNG        ESP32-S3         Motors
+---------        --------         ------
+VCC (VM)    ←    7.4V Battery     Motor power
+VCC (logic) ←    3.3V             Logic power
+GND         ←    Common GND
+STBY        ←    GPIO 17          HIGH = active
+AIN1        ←    GPIO 4           Left direction
+AIN2        ←    GPIO 5
+PWMA        ←    GPIO 6           Left speed (PWM)
+BIN1        ←    GPIO 7           Right direction
+BIN2        ←    GPIO 15
+PWMB        ←    GPIO 16          Right speed (PWM)
+AO1         →    Left front + rear motor (+)
+AO2         →    Left front + rear motor (-)
+BO1         →    Right front + rear motor (+)
+BO2         →    Right front + rear motor (-)
 ```
 
 ### Power
 ```
-6V Battery + -> DRV8833 VCC (motors)
-6V Battery + -> ESP Vin (onboard regulator to 3.3V)
-6V Battery - -> Common GND
+7.4V (2S 18650)
+  ├── TB6612 VM (motor power, max 13.5V)
+  ├── ESP32-S3 Vin (onboard regulator → 3.3V)
+  └── Battery divider → GPIO 1 (220K + 33K → max 0.96V at 8.4V)
+GND = all common
 ```

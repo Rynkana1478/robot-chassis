@@ -297,7 +297,7 @@
                     <div class="value" id="totalDist">-- cm</div>
                 </div>
                 <div class="stat">
-                    <div class="label">Encoder</div>
+                    <div class="label">Encoders L/R</div>
                     <div class="value" id="encTicks">--</div>
                 </div>
                 <div class="stat">
@@ -392,8 +392,8 @@
             <div class="test-buttons">
                 <button class="btn btn-test-all" onclick="sendCmd('test_all')">RUN ALL TESTS</button>
                 <button class="btn btn-test" onclick="sendCmd('test_i2c')">I2C Bus Scan</button>
-                <button class="btn btn-test" onclick="sendCmd('test_mpu')">MPU6050 Gyro</button>
-                <button class="btn btn-test" onclick="sendCmd('test_compass')">Compass</button>
+                <button class="btn btn-test" onclick="sendCmd('test_mpu')">MPU6050</button>
+                <button class="btn btn-test" onclick="sendCmd('test_compass')">QMC5883L Compass</button>
                 <button class="btn btn-test" onclick="sendCmd('test_ultrasonic')">Ultrasonic</button>
                 <button class="btn btn-test" onclick="sendCmd('test_servo')">Servo Sweep</button>
                 <button class="btn btn-test" onclick="sendCmd('test_motors')">Motors</button>
@@ -439,7 +439,7 @@ function updateDashboard(d) {
     document.getElementById('position').textContent = d.pos_x.toFixed(1) + ', ' + d.pos_y.toFixed(1);
     document.getElementById('gridPos').textContent = d.grid_x + ', ' + d.grid_y;
     document.getElementById('totalDist').textContent = d.distance.toFixed(0) + ' cm';
-    document.getElementById('encTicks').textContent = d.enc_ticks;
+    document.getElementById('encTicks').textContent = (d.enc_l||0) + ' / ' + (d.enc_r||0);
     document.getElementById('crumbs').textContent = d.crumbs;
 
     const battEl = document.getElementById('battery');

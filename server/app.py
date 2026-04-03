@@ -21,19 +21,20 @@ debug_logs = deque(maxlen=200)
 # --- Robot state (updated by ESP8266 POST) ---
 robot_state = {
     "front": 0, "left": 0, "right": 0,
-    "heading": 0,
+    "heading": 0, "compass_heading": -1, "gyro_rate": 0,
     "pos_x": 0, "pos_y": 0,
-    "distance": 0, "enc_ticks": 0,
+    "distance": 0, "enc_l": 0, "enc_r": 0,
     "battery": 0,
     "state": 0, "state_name": "IDLE",
     "path_length": 0, "auto": True,
-    "grid_x": 10, "grid_y": 10,
-    "target_x": 10, "target_y": 10,
+    "grid_x": 20, "grid_y": 20,
+    "target_x": 20, "target_y": 20,
     "target_wx": 0, "target_wy": 0,
     "has_target": False,
     "target_reached": False,
     "backtracking": False,
     "crumbs": 0,
+    "compass_ok": False, "mpu_ok": False,
     "connected": False,
     "last_update": 0,
     "debug_mode": False,
@@ -54,7 +55,7 @@ STATE_NAMES = {
     5: "TURNING",
 }
 
-GRID_SIZE = 20
+GRID_SIZE = 40
 
 
 @app.route("/")
@@ -73,37 +74,10 @@ def robot_report():
     if not data:
         return jsonify({"error": "no json"}), 400
 
-    robot_state.update({
-        "front": data.get("front", 0),
-        "left": data.get("left", 0),
-        "right": data.get("right", 0),
-        "heading": data.get("heading", 0),
-        "pos_x": data.get("pos_x", 0),
-        "pos_y": data.get("pos_y", 0),
-        "distance": data.get("distance", 0),
-        "enc_ticks": data.get("enc_ticks", 0),
-        "battery": data.get("battery", 0),
-        "state": data.get("state", 0),
-        "state_name": STATE_NAMES.get(data.get("state", 0), "UNKNOWN"),
-        "path_length": data.get("path_length", 0),
-        "auto": data.get("auto", True),
-        "grid_x": data.get("grid_x", 10),
-        "grid_y": data.get("grid_y", 10),
-        "target_x": data.get("target_x", 10),
-        "target_y": data.get("target_y", 10),
-        "target_wx": data.get("target_wx", 0),
-        "target_wy": data.get("target_wy", 0),
-        "has_target": data.get("has_target", False),
-        "target_reached": data.get("target_reached", False),
-        "backtracking": data.get("backtracking", False),
-        "crumbs": data.get("crumbs", 0),
-        "debug_mode": data.get("debug_mode", False),
-        "wifi_rssi": data.get("wifi_rssi", 0),
-        "free_heap": data.get("free_heap", 0),
-        "uptime": data.get("uptime", 0),
-        "connected": True,
-        "last_update": time.time(),
-    })
+    robot_state.update({k: data.get(k, robot_state.get(k, 0)) for k in data})
+    robot_state["state_name"] = STATE_NAMES.get(data.get("state", 0), "UNKNOWN")
+    robot_state["connected"] = True
+    robot_state["last_update"] = time.time()
     return jsonify({"ok": True})
 
 
@@ -138,7 +112,7 @@ def send_control():
     valid = ("forward", "back", "left", "right", "stop", "auto",
              "backtrack", "reset",
              "test_all", "test_i2c", "test_ultrasonic", "test_servo",
-             "test_mpu", "test_motors", "test_encoder",
+             "test_mpu", "test_compass", "test_motors", "test_encoder",
              "test_battery")
     if cmd not in valid:
         return jsonify({"error": "invalid cmd"}), 400
