@@ -47,7 +47,10 @@ public:
         pinMode(US_TRIG, OUTPUT);
         pinMode(US_ECHO, INPUT);
 
-        sweepServo.attach(SERVO_PIN);
+        // ESP32 servo uses LEDC internally
+        // Motors use channels 0-1, so servo gets channel 2+
+        sweepServo.setPeriodHertz(50);           // Standard 50Hz servo
+        sweepServo.attach(SERVO_PIN, 500, 2400); // min/max pulse width in µs
         sweepServo.write(SERVO_CENTER);
         delay(300);
 
