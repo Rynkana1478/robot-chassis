@@ -15,6 +15,7 @@ from flask import Flask, render_template, request, jsonify
 from collections import deque
 from functools import wraps
 import time
+from ai_translator import translate as ai_translate, check_ollama
 
 app = Flask(__name__)
 
@@ -192,6 +193,111 @@ def get_debug_logs():
 def clear_debug_logs():
     debug_logs.clear()
     return jsonify({"ok": True})
+
+
+# ============================================
+# AI Command Translator
+# ============================================
+ai_command_queue = deque()  # Multi-step commands from AI
+ai_log = deque(maxlen=50)   # AI decision history
+
+@app.route("/api/ai/translate", methods=["POST"])
+@require_token
+def ai_translate_endpoint():
+    """Translate natural language → robot commands via Ollama/rules."""
+    global pending_command
+    data = request.get_json(silent=True)
+    if not data or "text" not in data:
+        return jsonify({"error": "missing text"}), 400
+
+    user_text = data["text"].strip()
+    if not user_text:
+        return jsonify({"error": "empty text"}), 400
+
+    # Translate
+    result = ai_translate(user_text)
+
+    # Log to AI history
+    ai_log.append(result)
+
+    # Log to debug console
+    ts = time.strftime("%H:%M:%S")
+    debug_logs.append(f"[{ts}] [AI] Input: \"{user_text}\"")
+    debug_logs.append(f"[{ts}] [AI] Method: {result['method']} ({result['duration_ms']}ms)")
+    print(f"  [AI] Input: \"{user_text}\" → Method: {result['method']} ({result['duration_ms']}ms)")
+
+    if result.get("error"):
+        debug_logs.append(f"[{ts}] [AI] ERROR: {result['error']}")
+        print(f"  [AI] ERROR: {result['error']}")
+        return jsonify(result)
+
+    debug_logs.append(f"[{ts}] [AI] Explanation: {result['explanation']}")
+    print(f"  [AI] Explanation: {result['explanation']}")
+
+    # Queue commands
+    commands = result.get("commands", [])
+    for i, cmd in enumerate(commands):
+        action = cmd.get("action", "")
+        debug_logs.append(f"[{ts}] [AI] Command [{i+1}/{len(commands)}]: {json.dumps(cmd)}")
+        print(f"  [AI] Command [{i+1}/{len(commands)}]: {cmd}")
+
+    # Execute first command immediately, queue the rest
+    if commands:
+        first = commands[0]
+        _execute_ai_command(first)
+
+        for cmd in commands[1:]:
+            ai_command_queue.append(cmd)
+
+        if len(commands) > 1:
+            debug_logs.append(f"[{ts}] [AI] Queued {len(commands)-1} more command(s)")
+
+    return jsonify(result)
+
+
+@app.route("/api/ai/status", methods=["GET"])
+@require_token
+def ai_status():
+    """Get AI system status and recent history."""
+    return jsonify({
+        "ollama_available": check_ollama(),
+        "queue_length": len(ai_command_queue),
+        "history": list(ai_log),
+    })
+
+
+@app.route("/api/ai/next", methods=["POST"])
+@require_token
+def ai_next_command():
+    """Execute next queued AI command (called when robot reaches target)."""
+    if ai_command_queue:
+        cmd = ai_command_queue.popleft()
+        _execute_ai_command(cmd)
+        ts = time.strftime("%H:%M:%S")
+        debug_logs.append(f"[{ts}] [AI] Next queued command: {json.dumps(cmd)}")
+        return jsonify({"ok": True, "cmd": cmd, "remaining": len(ai_command_queue)})
+    return jsonify({"ok": True, "cmd": None, "remaining": 0})
+
+
+import json as json_module
+
+def _execute_ai_command(cmd):
+    """Convert an AI command dict to a pending robot command."""
+    global pending_command
+    action = cmd.get("action", "")
+
+    if action == "set_target":
+        x = cmd.get("x", 0)
+        y = cmd.get("y", 0)
+        pending_command = {"cmd": "set_target", "x": float(x), "y": float(y)}
+        robot_state["target_wx"] = float(x)
+        robot_state["target_wy"] = float(y)
+    elif action == "backtrack":
+        pending_command = {"cmd": "backtrack"}
+    elif action == "stop":
+        pending_command = {"cmd": "stop"}
+    elif action == "reset":
+        pending_command = {"cmd": "reset"}
 
 
 # ============================================

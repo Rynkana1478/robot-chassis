@@ -275,6 +275,125 @@
         }
         .map-note { font-size: 0.72em; color: #B8AD9E; margin-top: 4px; }
 
+        /* AI Panel */
+        .ai-section {
+            margin-top: 16px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+        .ai-input-area {
+            display: flex;
+            gap: 8px;
+        }
+        .ai-input-area input {
+            flex: 1;
+            padding: 11px 14px;
+            border: 1px solid #E0D6CA;
+            border-radius: 8px;
+            background: #FFFCF8;
+            color: #3D3929;
+            font-family: inherit;
+            font-size: 0.9em;
+        }
+        .ai-input-area input:focus { outline: none; border-color: #C96442; box-shadow: 0 0 0 3px rgba(201,100,66,0.12); }
+        .btn-voice {
+            width: 44px;
+            min-width: 44px;
+            border-radius: 50%;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2em;
+            background: #EBE5DC;
+            border: 1px solid #D8CFBF;
+        }
+        .btn-voice.listening {
+            background: #C96442;
+            color: white;
+            border-color: #C96442;
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(201,100,66,0.3); }
+            50% { box-shadow: 0 0 0 8px rgba(201,100,66,0); }
+        }
+        .ai-status {
+            font-size: 0.75em;
+            color: #A09685;
+            margin-top: 6px;
+            display: flex;
+            gap: 12px;
+        }
+        .ai-status .dot {
+            display: inline-block;
+            width: 7px; height: 7px;
+            border-radius: 50%;
+            margin-right: 4px;
+            vertical-align: middle;
+        }
+        .dot-on { background: #1B7D3E; }
+        .dot-off { background: #C5221F; }
+        .ai-response {
+            margin-top: 10px;
+            font-size: 0.82em;
+        }
+        .ai-bubble {
+            padding: 10px 14px;
+            border-radius: 10px;
+            margin-bottom: 6px;
+            line-height: 1.5;
+        }
+        .ai-bubble-user {
+            background: #C96442;
+            color: white;
+            margin-left: 40px;
+            border-bottom-right-radius: 4px;
+        }
+        .ai-bubble-ai {
+            background: #F7F3ED;
+            color: #3D3929;
+            margin-right: 40px;
+            border-bottom-left-radius: 4px;
+        }
+        .ai-bubble-error {
+            background: #FCE8E6;
+            color: #C5221F;
+            margin-right: 40px;
+            border-bottom-left-radius: 4px;
+        }
+        .ai-bubble-cmd {
+            background: #E6F4EA;
+            color: #1B7D3E;
+            margin-right: 40px;
+            border-bottom-left-radius: 4px;
+            font-family: 'SF Mono', 'Consolas', monospace;
+            font-size: 0.9em;
+        }
+        .ai-meta {
+            font-size: 0.72em;
+            color: #A09685;
+            margin-top: 2px;
+        }
+        .ai-history {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .ai-queue-badge {
+            display: inline-block;
+            background: #D4923A;
+            color: white;
+            font-size: 0.7em;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-weight: 600;
+        }
+
+        @media (max-width: 960px) {
+            .ai-section { grid-template-columns: 1fr; }
+        }
+
         /* Debug panel */
         .debug-section {
             display: grid;
@@ -459,6 +578,28 @@
                 <kbd>Space</kbd> stop
                 <kbd>B</kbd> backtrack
                 <kbd>R</kbd> reset
+            </div>
+        </div>
+    </div>
+
+    <!-- AI COMMAND -->
+    <div class="ai-section">
+        <div class="card">
+            <h2>AI Command <span id="aiQueueBadge"></span></h2>
+            <div class="ai-input-area">
+                <input type="text" id="aiInput" placeholder="Tell the robot what to do..." onkeydown="if(event.key==='Enter')sendAI()">
+                <button class="btn btn-primary" onclick="sendAI()">Send</button>
+                <button class="btn btn-voice" id="voiceBtn" onclick="toggleVoice()">&#127908;</button>
+            </div>
+            <div class="ai-status">
+                <span><span class="dot" id="ollamaDot"></span> <span id="ollamaStatus">Checking...</span></span>
+                <span id="aiMethod"></span>
+            </div>
+        </div>
+        <div class="card">
+            <h2>AI Conversation</h2>
+            <div class="ai-history" id="aiHistory">
+                <div class="ai-bubble ai-bubble-ai">Say something like "go forward 2 meters" or click the mic.</div>
             </div>
         </div>
     </div>
@@ -697,6 +838,159 @@ function clearLogs() {
     document.getElementById('debugConsole').innerHTML = '<div class="log-line log-time">Logs cleared</div>';
     debugLogIndex = 0;
 }
+
+// =============================================
+// AI COMMAND TRANSLATOR
+// =============================================
+function sendAI() {
+    const input = document.getElementById('aiInput');
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+
+    // Show user message
+    addAIBubble(text, 'user');
+
+    apiFetch('/api/ai/translate', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({text: text})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) {
+            addAIBubble(data.error, 'error');
+        } else {
+            addAIBubble(data.explanation, 'ai',
+                `${data.method} | ${data.duration_ms}ms`);
+
+            // Show each command
+            (data.commands || []).forEach((cmd, i) => {
+                let desc = '';
+                if (cmd.action === 'set_target') desc = `set_target → X:${cmd.x} Y:${cmd.y} cm`;
+                else desc = cmd.action;
+                addAIBubble(`[${i+1}] ${desc}`, 'cmd');
+            });
+        }
+        updateAIStatus();
+    })
+    .catch(err => addAIBubble('Server error: ' + err, 'error'));
+}
+
+function addAIBubble(text, type, meta) {
+    const history = document.getElementById('aiHistory');
+    const bubble = document.createElement('div');
+    bubble.className = 'ai-bubble ai-bubble-' + type;
+    bubble.textContent = text;
+    history.appendChild(bubble);
+
+    if (meta) {
+        const metaDiv = document.createElement('div');
+        metaDiv.className = 'ai-meta';
+        metaDiv.textContent = meta;
+        history.appendChild(metaDiv);
+    }
+
+    history.scrollTop = history.scrollHeight;
+
+    // Keep last 50 bubbles
+    while (history.children.length > 100) history.removeChild(history.firstChild);
+}
+
+function updateAIStatus() {
+    apiFetch('/api/ai/status')
+        .then(r => r.json())
+        .then(data => {
+            const dot = document.getElementById('ollamaDot');
+            const status = document.getElementById('ollamaStatus');
+            dot.className = 'dot ' + (data.ollama_available ? 'dot-on' : 'dot-off');
+            status.textContent = data.ollama_available ? 'Ollama online' : 'Ollama offline (using rules)';
+
+            const badge = document.getElementById('aiQueueBadge');
+            badge.innerHTML = data.queue_length > 0
+                ? `<span class="ai-queue-badge">${data.queue_length} queued</span>` : '';
+        })
+        .catch(() => {});
+}
+
+// =============================================
+// VOICE INPUT (Web Speech API)
+// =============================================
+let recognition = null;
+let isListening = false;
+
+function toggleVoice() {
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+        addAIBubble('Voice not supported in this browser. Use Chrome or Edge.', 'error');
+        return;
+    }
+
+    if (isListening) {
+        stopVoice();
+        return;
+    }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => {
+        isListening = true;
+        document.getElementById('voiceBtn').classList.add('listening');
+        document.getElementById('aiInput').placeholder = 'Listening...';
+    };
+
+    recognition.onresult = (event) => {
+        const text = event.results[0][0].transcript;
+        const confidence = (event.results[0][0].confidence * 100).toFixed(0);
+        document.getElementById('aiInput').value = text;
+        addAIBubble(`[Voice ${confidence}%] ${text}`, 'user');
+
+        // Auto-send
+        apiFetch('/api/ai/translate', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({text: text})
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) {
+                addAIBubble(data.error, 'error');
+            } else {
+                addAIBubble(data.explanation, 'ai', `${data.method} | ${data.duration_ms}ms`);
+                (data.commands || []).forEach((cmd, i) => {
+                    let desc = cmd.action === 'set_target' ? `set_target ��� X:${cmd.x} Y:${cmd.y}` : cmd.action;
+                    addAIBubble(`[${i+1}] ${desc}`, 'cmd');
+                });
+            }
+            updateAIStatus();
+        });
+    };
+
+    recognition.onerror = (event) => {
+        if (event.error !== 'aborted') {
+            addAIBubble('Voice error: ' + event.error, 'error');
+        }
+        stopVoice();
+    };
+
+    recognition.onend = () => stopVoice();
+
+    recognition.start();
+}
+
+function stopVoice() {
+    isListening = false;
+    document.getElementById('voiceBtn').classList.remove('listening');
+    document.getElementById('aiInput').placeholder = "Tell the robot what to do...";
+    if (recognition) { try { recognition.stop(); } catch(e) {} }
+}
+
+// Check AI status periodically
+setInterval(updateAIStatus, 5000);
+updateAIStatus();
 
 setInterval(fetchStatus, 500);
 setInterval(fetchDebugLogs, 500);
