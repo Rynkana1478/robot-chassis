@@ -237,13 +237,20 @@ def ai_translate_endpoint():
     # Queue commands
     commands = result.get("commands", [])
     for i, cmd in enumerate(commands):
-        action = cmd.get("action", "")
         debug_logs.append(f"[{ts}] [AI] Command [{i+1}/{len(commands)}]: {json.dumps(cmd)}")
         print(f"  [AI] Command [{i+1}/{len(commands)}]: {cmd}")
 
-    # Execute first command immediately, queue the rest
+    # Show full JSON that will be sent to chassis
     if commands:
+        full_json = json.dumps(commands)
+        debug_logs.append(f"[{ts}] [AI] >>> JSON to chassis: {full_json}")
+        print(f"  [AI] >>> JSON to chassis: {full_json}")
+
+        # Execute first command immediately, queue the rest
         first = commands[0]
+        pending_json = json.dumps(_to_pending(first))
+        debug_logs.append(f"[{ts}] [AI] >>> pending_command = {pending_json}")
+        print(f"  [AI] >>> pending_command = {pending_json}")
         _execute_ai_command(first)
 
         for cmd in commands[1:]:
@@ -280,6 +287,19 @@ def ai_next_command():
 
 
 import json as json_module
+
+def _to_pending(cmd):
+    """Convert AI command to the format ESP32 expects."""
+    action = cmd.get("action", "")
+    if action == "set_target":
+        return {"cmd": "set_target", "x": float(cmd.get("x", 0)), "y": float(cmd.get("y", 0))}
+    elif action == "backtrack":
+        return {"cmd": "backtrack"}
+    elif action == "stop":
+        return {"cmd": "stop"}
+    elif action == "reset":
+        return {"cmd": "reset"}
+    return {"cmd": "none"}
 
 def _execute_ai_command(cmd):
     """Convert an AI command dict to a pending robot command."""

@@ -866,10 +866,16 @@ function sendAI() {
         } else {
             addAIBubble(data.explanation, 'ai',
                 `${data.method} | ${data.duration_ms}ms`);
+
+            // Show each command with full JSON
             (data.commands || []).forEach((cmd, i) => {
-                let desc = cmd.action === 'set_target' ? `set_target X:${cmd.x} Y:${cmd.y} cm` : cmd.action;
-                addAIBubble(`[${i+1}] ${desc}`, 'cmd');
+                let label = cmd.action === 'set_target' ? `set_target X:${cmd.x} Y:${cmd.y} cm` : cmd.action;
+                addAIBubble(`[${i+1}] ${label}`, 'cmd');
             });
+
+            // Show full JSON payload sent to chassis
+            const payload = JSON.stringify(data.commands, null, 2);
+            addAIBubble('JSON to chassis:\n' + payload, 'cmd');
         }
         updateAIStatus();
     })
