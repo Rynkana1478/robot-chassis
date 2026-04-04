@@ -8,11 +8,15 @@
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            overflow-x: hidden;
+            max-width: 100vw;
+        }
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
             background: #F3EDE5;
             color: #3D3929;
-            padding: 20px;
+            padding: 16px;
             line-height: 1.5;
         }
 
@@ -281,14 +285,17 @@
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 16px;
+            overflow: hidden;
         }
         .ai-input-area {
             display: flex;
-            gap: 8px;
+            gap: 6px;
+            flex-wrap: wrap;
         }
         .ai-input-area input {
             flex: 1;
-            padding: 11px 14px;
+            min-width: 0;
+            padding: 10px 12px;
             border: 1px solid #E0D6CA;
             border-radius: 8px;
             background: #FFFCF8;
@@ -392,6 +399,9 @@
 
         @media (max-width: 960px) {
             .ai-section { grid-template-columns: 1fr; }
+            .ai-input-area { flex-wrap: wrap; }
+            .ai-input-area input[type="text"] { min-width: 100%; flex-basis: 100%; }
+            .ai-bubble { margin-left: 10px; margin-right: 10px; }
         }
 
         /* Debug panel */
@@ -586,17 +596,17 @@
     <div class="ai-section">
         <div class="card">
             <h2>AI Command <span id="aiQueueBadge"></span></h2>
-            <div class="ai-input-area" style="margin-bottom:8px">
-                <input type="text" id="userName" placeholder="Your name" style="max-width:100px" value="">
-            </div>
-            <div class="ai-input-area">
-                <input type="text" id="aiInput" placeholder="Tell the robot what to do..." onkeydown="if(event.key==='Enter')sendAI()">
-                <button class="btn btn-primary" onclick="sendAI()">Send</button>
-                <select id="voiceLang" class="btn" style="padding:6px;font-size:0.8em;min-width:55px">
+            <div class="ai-input-area" style="margin-bottom:6px">
+                <input type="text" id="userName" placeholder="Name" style="width:80px;flex:none">
+                <select id="voiceLang" class="btn" style="padding:6px;font-size:0.8em;flex:none">
                     <option value="en-US">EN</option>
                     <option value="th-TH">TH</option>
                 </select>
-                <button class="btn btn-voice" id="voiceBtn" onclick="toggleVoice()">&#127908;</button>
+                <button class="btn btn-voice" id="voiceBtn" onclick="toggleVoice()" style="flex:none">&#127908;</button>
+            </div>
+            <div class="ai-input-area">
+                <input type="text" id="aiInput" placeholder="Tell the robot what to do..." onkeydown="if(event.key==='Enter')sendAI()">
+                <button class="btn btn-primary" onclick="sendAI()" style="flex:none">Send</button>
             </div>
             <div class="ai-status">
                 <span><span class="dot" id="ollamaDot"></span> <span id="ollamaStatus">Checking...</span></span>
