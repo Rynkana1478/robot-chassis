@@ -89,9 +89,16 @@
 #define WIFI_SSID     "Blackwise_2.4G"
 #define WIFI_PASSWORD "0639041446"
 
-// --- Flask Server ---
+// --- Server ---
+// Local mode:  "192.168.43.100" port 5000
+// Cloud mode:  "your-app.onrender.com" port 443 (HTTPS)
 #define SERVER_HOST   "192.168.43.100"
 #define SERVER_PORT   5000
+#define SERVER_HTTPS  false   // true for cloud (Render/Railway), false for local
+
+// API token (must match server's ROBOT_API_TOKEN)
+#define API_TOKEN     "robot123"
+
 #define REPORT_INTERVAL_MS  200
 
 // --- Debug ---

@@ -411,10 +411,18 @@
 
 <script>
 const GRID_SIZE = {{ grid_size }};
+const API_TOKEN = '{{ api_token }}';
 let debugLogIndex = 0;
 
+// Helper: add token to all fetch calls
+function apiFetch(url, options = {}) {
+    if (!options.headers) options.headers = {};
+    options.headers['X-Robot-Token'] = API_TOKEN;
+    return fetch(url, options);
+}
+
 function fetchStatus() {
-    fetch('/api/status')
+    apiFetch('/api/status')
         .then(r => r.json())
         .then(updateDashboard)
         .catch(() => setDisconnected());
@@ -582,7 +590,7 @@ function drawGrid(d) {
 
 // --- Commands ---
 function sendCmd(cmd) {
-    fetch('/api/control', {
+    apiFetch('/api/control', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({cmd: cmd})
@@ -592,7 +600,7 @@ function sendCmd(cmd) {
 function setTarget() {
     const x = parseFloat(document.getElementById('targetX').value) || 0;
     const y = parseFloat(document.getElementById('targetY').value) || 0;
-    fetch('/api/target', {
+    apiFetch('/api/target', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({x: x, y: y})
@@ -638,7 +646,7 @@ document.querySelectorAll('.control-pad .btn').forEach(btn => {
 
 // --- Debug log polling ---
 function fetchDebugLogs() {
-    fetch('/api/debug/logs?since=' + debugLogIndex)
+    apiFetch('/api/debug/logs?since=' + debugLogIndex)
         .then(r => r.json())
         .then(data => {
             if (data.logs && data.logs.length > 0) {
@@ -666,7 +674,7 @@ function fetchDebugLogs() {
 }
 
 function clearLogs() {
-    fetch('/api/debug/clear', {method: 'POST'});
+    apiFetch('/api/debug/clear', {method: 'POST', headers: {'Content-Type': 'application/json'}});
     document.getElementById('debugConsole').innerHTML = '<div class="log-line log-time">Logs cleared</div>';
     debugLogIndex = 0;
 }

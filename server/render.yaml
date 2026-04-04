@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: robot-server
+    runtime: python
+    rootDir: server
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: ROBOT_API_TOKEN
+        generateValue: true

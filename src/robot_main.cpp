@@ -9,6 +9,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
 #include <Wire.h>
 
@@ -59,6 +60,29 @@ struct Command {
     float x, y;
     bool pending;
 } pendingCmd = {"none", 0, 0, false};
+
+// Server URL builder
+String serverURL(const char* path) {
+    String url = SERVER_HTTPS ? "https://" : "http://";
+    url += SERVER_HOST;
+    if (!SERVER_HTTPS) { url += ":"; url += SERVER_PORT; }
+    url += path;
+    return url;
+}
+
+// HTTP client with token
+WiFiClientSecure secureClient;
+
+void httpBegin(HTTPClient &http, const char* path) {
+    if (SERVER_HTTPS) {
+        secureClient.setInsecure(); // Skip cert validation (simple, works for free hosting)
+        http.begin(secureClient, serverURL(path));
+    } else {
+        http.begin(serverURL(path));
+    }
+    http.setTimeout(500);
+    http.addHeader("X-Robot-Token", API_TOKEN);
+}
 
 // Forward declarations
 void wifiTask(void* param);
@@ -231,9 +255,7 @@ void wifiTask(void* param) {
 // ============================================
 void postTelemetry() {
     HTTPClient http;
-    String url = "http://" + String(SERVER_HOST) + ":" + String(SERVER_PORT) + "/api/robot/report";
-    http.begin(url);
-    http.setTimeout(500);
+    httpBegin(http, "/api/robot/report");
     http.addHeader("Content-Type", "application/json");
 
     JsonDocument doc;
@@ -285,9 +307,7 @@ void postTelemetry() {
 // ============================================
 void fetchCommand() {
     HTTPClient http;
-    String url = "http://" + String(SERVER_HOST) + ":" + String(SERVER_PORT) + "/api/robot/command";
-    http.begin(url);
-    http.setTimeout(500);
+    httpBegin(http, "/api/robot/command");
 
     int code = http.GET();
     if (code == 200) {
@@ -379,9 +399,7 @@ void setupWiFi() {
 void debugFlush() {
     if (Debug::logCount == 0) return;
     HTTPClient http;
-    String url = "http://" + String(SERVER_HOST) + ":" + String(SERVER_PORT) + "/api/robot/debug";
-    http.begin(url);
-    http.setTimeout(300);
+    httpBegin(http, "/api/robot/debug");
     http.addHeader("Content-Type", "application/json");
 
     JsonDocument doc;
