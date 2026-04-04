@@ -204,7 +204,7 @@ ai_log = deque(maxlen=50)   # AI decision history
 @app.route("/api/ai/translate", methods=["POST"])
 @require_token
 def ai_translate_endpoint():
-    """Translate natural language → robot commands via Ollama/rules."""
+    """Translate natural language to robot commands via Ollama/rules."""
     global pending_command
     data = request.get_json(silent=True)
     if not data or "text" not in data:
@@ -224,7 +224,7 @@ def ai_translate_endpoint():
     ts = time.strftime("%H:%M:%S")
     debug_logs.append(f"[{ts}] [AI] Input: \"{user_text}\"")
     debug_logs.append(f"[{ts}] [AI] Method: {result['method']} ({result['duration_ms']}ms)")
-    print(f"  [AI] Input: \"{user_text}\" → Method: {result['method']} ({result['duration_ms']}ms)")
+    print(f"  [AI] Input: \"{user_text}\" -> Method: {result['method']} ({result['duration_ms']}ms)")
 
     if result.get("error"):
         debug_logs.append(f"[{ts}] [AI] ERROR: {result['error']}")
