@@ -201,6 +201,7 @@ def clear_debug_logs():
 # ============================================
 ai_command_queue = deque()  # Multi-step commands from AI
 ai_log = deque(maxlen=50)   # AI decision history
+chat_log = deque(maxlen=100)  # Shared chat: everyone sees all messages
 
 @app.route("/api/ai/translate", methods=["POST"])
 @require_token
@@ -212,28 +213,38 @@ def ai_translate_endpoint():
         return jsonify({"error": "missing text"}), 400
 
     user_text = data["text"].strip()
+    username = data.get("user", "Anonymous").strip() or "Anonymous"
     if not user_text:
         return jsonify({"error": "empty text"}), 400
 
     # Translate
     result = ai_translate(user_text)
+    result["user"] = username
+
+    # Log to shared chat
+    ts = time.strftime("%H:%M:%S")
+    chat_log.append({"time": ts, "user": username, "type": "user", "text": user_text})
 
     # Log to AI history
     ai_log.append(result)
 
     # Log to debug console
-    ts = time.strftime("%H:%M:%S")
-    debug_logs.append(f"[{ts}] [AI] Input: \"{user_text}\"")
+    debug_logs.append(f"[{ts}] [{username}] \"{user_text}\"")
     debug_logs.append(f"[{ts}] [AI] Method: {result['method']} ({result['duration_ms']}ms)")
-    print(f"  [AI] Input: \"{user_text}\" -> Method: {result['method']} ({result['duration_ms']}ms)")
+    print(f"  [{username}] \"{user_text}\" -> {result['method']} ({result['duration_ms']}ms)")
 
     if result.get("error"):
+        chat_log.append({"time": ts, "user": "AI", "type": "error", "text": result['error']})
         debug_logs.append(f"[{ts}] [AI] ERROR: {result['error']}")
         print(f"  [AI] ERROR: {result['error']}")
         return jsonify(result)
 
-    debug_logs.append(f"[{ts}] [AI] Explanation: {result['explanation']}")
-    print(f"  [AI] Explanation: {result['explanation']}")
+    chat_log.append({"time": ts, "user": "AI", "type": "ai", "text": result['explanation']})
+    for cmd in result.get("commands", []):
+        chat_log.append({"time": ts, "user": "AI", "type": "cmd", "text": json.dumps(cmd)})
+
+    debug_logs.append(f"[{ts}] [AI] {result['explanation']}")
+    print(f"  [AI] {result['explanation']}")
 
     # Queue commands
     commands = result.get("commands", [])
@@ -272,6 +283,17 @@ def ai_status():
         "queue_length": len(ai_command_queue),
         "history": list(ai_log),
     })
+
+
+@app.route("/api/chat", methods=["GET"])
+@require_token
+def get_chat():
+    """Get shared chat messages. All connected users see the same log."""
+    since = int(request.args.get("since", 0))
+    messages = list(chat_log)
+    if since < len(messages):
+        return jsonify({"messages": messages[since:], "total": len(messages)})
+    return jsonify({"messages": [], "total": len(messages)})
 
 
 @app.route("/api/ai/next", methods=["POST"])
