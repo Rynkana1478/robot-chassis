@@ -98,8 +98,17 @@ def rule_based_parse(text):
     """Fallback: simple regex parser when Ollama is not available."""
     text = text.lower().strip()
 
-    # Simple commands
-    if text in ("stop", "halt", "freeze"):
+    # Priority / emergency commands (no AI needed)
+    if text in ("stop", "halt", "freeze", "quick stop", "force stop",
+                "emergency stop", "emergency", "quick sto", "stp", "s"):
+        return {"commands": [{"action": "stop"}], "explanation": "EMERGENCY STOP", "method": "priority"}
+    if text in ("come back", "return", "go home", "backtrack", "go back home",
+                "return home", "back home", "home"):
+        return {"commands": [{"action": "backtrack"}], "explanation": "Returning to start", "method": "priority"}
+    if text in ("reset", "reset position", "restart"):
+        return {"commands": [{"action": "reset"}], "explanation": "Position reset", "method": "priority"}
+
+    # Simple commands (legacy, still works)
         return {"commands": [{"action": "stop"}], "explanation": "Emergency stop", "method": "rule"}
     if text in ("come back", "return", "go home", "backtrack", "go back home"):
         return {"commands": [{"action": "backtrack"}], "explanation": "Returning to start", "method": "rule"}
@@ -185,7 +194,16 @@ def translate(user_input):
         "duration_ms": 0,
     }
 
-    # Try Ollama first
+    # Check priority commands first (instant, no AI)
+    priority = rule_based_parse(user_input)
+    if priority.get("method") == "priority":
+        result["commands"] = priority["commands"]
+        result["explanation"] = priority["explanation"]
+        result["method"] = "priority (instant)"
+        result["duration_ms"] = round((time.time() - start_time) * 1000)
+        return result
+
+    # Try Ollama
     if check_ollama():
         result["ollama_available"] = True
         result["method"] = "ollama"
