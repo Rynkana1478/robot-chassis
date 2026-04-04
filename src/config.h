@@ -90,11 +90,12 @@
 #define WIFI_PASSWORD "0639041446"
 
 // --- Server ---
-// Local mode:  "192.168.43.100" port 5000
-// Cloud mode:  "your-app.onrender.com" port 443 (HTTPS)
-#define SERVER_HOST   "192.168.43.100"
-#define SERVER_PORT   5000
-#define SERVER_HTTPS  false   // true for cloud (Render/Railway), false for local
+// Home PC mode: public IP, port 25565 (already forwarded)
+// Local mode:   "192.168.x.x" port 25565
+// Cloud mode:   "your-app.onrender.com" port 443 (HTTPS)
+#define SERVER_HOST   "49.228.97.202"
+#define SERVER_PORT   25565
+#define SERVER_HTTPS  false
 
 // API token (must match server's ROBOT_API_TOKEN)
 #define API_TOKEN     "robot123"

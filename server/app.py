@@ -203,7 +203,7 @@ def health():
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 25565))
     print("=" * 50)
     print("  4WD Robot Server")
     print(f"  Token: {API_TOKEN}")
