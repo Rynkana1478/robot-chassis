@@ -856,25 +856,24 @@ function sendAI() {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({text: text})
     })
-    .then(r => r.json())
+    .then(r => {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+    })
     .then(data => {
         if (data.error) {
             addAIBubble(data.error, 'error');
         } else {
             addAIBubble(data.explanation, 'ai',
                 `${data.method} | ${data.duration_ms}ms`);
-
-            // Show each command
             (data.commands || []).forEach((cmd, i) => {
-                let desc = '';
-                if (cmd.action === 'set_target') desc = `set_target → X:${cmd.x} Y:${cmd.y} cm`;
-                else desc = cmd.action;
+                let desc = cmd.action === 'set_target' ? `set_target X:${cmd.x} Y:${cmd.y} cm` : cmd.action;
                 addAIBubble(`[${i+1}] ${desc}`, 'cmd');
             });
         }
         updateAIStatus();
     })
-    .catch(err => addAIBubble('Server error: ' + err, 'error'));
+    .catch(err => addAIBubble('Error: ' + err.message, 'error'));
 }
 
 function addAIBubble(text, type, meta) {
@@ -948,25 +947,26 @@ function toggleVoice() {
         document.getElementById('aiInput').value = text;
         addAIBubble(`[Voice ${confidence}%] ${text}`, 'user');
 
-        // Auto-send
+        // Auto-send voice result
         apiFetch('/api/ai/translate', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({text: text})
         })
-        .then(r => r.json())
+        .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
         .then(data => {
             if (data.error) {
                 addAIBubble(data.error, 'error');
             } else {
                 addAIBubble(data.explanation, 'ai', `${data.method} | ${data.duration_ms}ms`);
                 (data.commands || []).forEach((cmd, i) => {
-                    let desc = cmd.action === 'set_target' ? `set_target ��� X:${cmd.x} Y:${cmd.y}` : cmd.action;
+                    let desc = cmd.action === 'set_target' ? `set_target X:${cmd.x} Y:${cmd.y}` : cmd.action;
                     addAIBubble(`[${i+1}] ${desc}`, 'cmd');
                 });
             }
             updateAIStatus();
-        });
+        })
+        .catch(err => addAIBubble('Error: ' + err.message, 'error'));
     };
 
     recognition.onerror = (event) => {

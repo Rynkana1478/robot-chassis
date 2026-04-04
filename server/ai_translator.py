@@ -13,33 +13,38 @@ import time
 OLLAMA_URL = "http://localhost:11434/api/generate"
 OLLAMA_MODEL = "llama3.2"
 
-SYSTEM_PROMPT = """You are a robot command translator. Convert human instructions into JSON robot commands.
+SYSTEM_PROMPT = """You translate human instructions into JSON robot commands. Output ONLY valid JSON.
 
-The robot is at position (0,0) facing north (positive Y). Coordinates are in centimeters.
-- Forward = +Y
-- Backward = -Y
-- Left = -X
-- Right = +X
-- 1 meter = 100 cm
+Coordinate system: Forward=+Y, Backward=-Y, Left=-X, Right=-X. Units: centimeters. 1 meter = 100cm.
 
-Available commands:
-- set_target: move to coordinates {x, y} in cm
-- backtrack: return to starting position
-- stop: emergency stop
-- reset: reset position to (0,0)
+ONLY these actions exist:
+- "set_target" with "x" and "y" in cm
+- "backtrack" (no params)
+- "stop" (no params)
+- "reset" (no params)
 
-For multiple steps, use a list of commands executed in sequence.
+DO NOT invent new actions. ONLY use set_target, backtrack, stop, reset.
 
-IMPORTANT: Respond with ONLY valid JSON, no other text. Format:
-{"commands": [{"action": "set_target", "x": 0, "y": 200}], "explanation": "Moving forward 2 meters"}
+Output format: {"commands": [...], "explanation": "short text"}
 
 Examples:
-- "go forward 1 meter" → {"commands": [{"action": "set_target", "x": 0, "y": 100}], "explanation": "Moving forward 100cm"}
-- "go left 50cm" → {"commands": [{"action": "set_target", "x": -50, "y": 0}], "explanation": "Moving left 50cm"}
-- "come back" → {"commands": [{"action": "backtrack"}], "explanation": "Returning to start"}
-- "go right 2m then forward 1m" → {"commands": [{"action": "set_target", "x": 200, "y": 0}, {"action": "set_target", "x": 200, "y": 100}], "explanation": "Moving right 2m then forward 1m"}
-- "stop" → {"commands": [{"action": "stop"}], "explanation": "Emergency stop"}
-- "go northwest 3 meters" → {"commands": [{"action": "set_target", "x": -212, "y": 212}], "explanation": "Moving northwest 3m (diagonal)"}
+Input: "go forward 1 meter"
+Output: {"commands": [{"action": "set_target", "x": 0, "y": 100}], "explanation": "Forward 100cm"}
+
+Input: "go left 50cm"
+Output: {"commands": [{"action": "set_target", "x": -50, "y": 0}], "explanation": "Left 50cm"}
+
+Input: "come back"
+Output: {"commands": [{"action": "backtrack"}], "explanation": "Returning to start"}
+
+Input: "go right 2m then forward 1m"
+Output: {"commands": [{"action": "set_target", "x": 200, "y": 0}, {"action": "set_target", "x": 200, "y": 100}], "explanation": "Right 200cm then forward 100cm"}
+
+Input: "stop"
+Output: {"commands": [{"action": "stop"}], "explanation": "Stop"}
+
+Input: "go northwest 3 meters"
+Output: {"commands": [{"action": "set_target", "x": -212, "y": 212}], "explanation": "Northwest 300cm diagonal"}
 """
 
 
@@ -62,7 +67,7 @@ def ask_ollama(user_input):
             "stream": False,
             "format": "json",
             "options": {"temperature": 0.1}  # Low temp = more deterministic
-        }, timeout=15)
+        }, timeout=60)  # First call loads model into RAM (~30s), subsequent calls are fast
 
         if r.status_code == 200:
             response_text = r.json().get("response", "")
@@ -172,9 +177,32 @@ def translate(user_input):
         ai_response = ask_ollama(user_input)
 
         if "error" not in ai_response:
-            result["commands"] = ai_response.get("commands", [])
-            result["explanation"] = ai_response.get("explanation", "")
-            result["raw_response"] = ai_response
+            commands = ai_response.get("commands", [])
+            # Validate: only allow known actions
+            valid_actions = {"set_target", "backtrack", "stop", "reset"}
+            validated = []
+            for cmd in commands:
+                action = cmd.get("action", "")
+                if action in valid_actions:
+                    validated.append(cmd)
+                elif "x" in cmd or "y" in cmd or "distance" in cmd:
+                    # LLM used wrong action name but has coordinates — fix it
+                    x = cmd.get("x", 0)
+                    y = cmd.get("y", 0)
+                    validated.append({"action": "set_target", "x": x, "y": y})
+                # else: skip unknown action
+
+            if validated:
+                result["commands"] = validated
+                result["explanation"] = ai_response.get("explanation", "")
+                result["raw_response"] = ai_response
+            else:
+                # Ollama returned garbage, fall back to rules
+                result["method"] = "rule (ollama output invalid)"
+                fallback = rule_based_parse(user_input)
+                result["commands"] = fallback.get("commands", [])
+                result["explanation"] = fallback.get("explanation", "")
+                result["error"] = fallback.get("error")
         else:
             # Ollama failed, fall back to rules
             result["method"] = "rule (ollama error)"
