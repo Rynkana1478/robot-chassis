@@ -44,8 +44,20 @@ Output: {"commands": [{"action": "set_target", "x": 0, "y": 100}], "explanation"
 Input: "go left 50cm"
 Output: {"commands": [{"action": "set_target", "x": -50, "y": 0}], "explanation": "Left 50cm"}
 
+Input: "go back 1 meter"
+Output: {"commands": [{"action": "set_target", "x": 0, "y": -100}], "explanation": "Backward 100cm"}
+
+Input: "go backward 2m"
+Output: {"commands": [{"action": "set_target", "x": 0, "y": -200}], "explanation": "Backward 200cm"}
+
 Input: "come back"
 Output: {"commands": [{"action": "backtrack"}], "explanation": "Returning to start"}
+
+Input: "return home"
+Output: {"commands": [{"action": "backtrack"}], "explanation": "Returning to start"}
+
+IMPORTANT: "go back X meters" means move BACKWARD (set_target with negative Y).
+"come back" or "return" or "go home" means BACKTRACK to starting position. These are DIFFERENT.
 
 Input: "go right 2m then forward 1m"
 Output: {"commands": [{"action": "set_target", "x": 200, "y": 0}, {"action": "set_target", "x": 200, "y": 100}], "explanation": "Right 200cm then forward 100cm"}
