@@ -11,6 +11,7 @@ Dashboard: http://localhost:5000  (or your cloud URL)
 """
 
 import os
+import json
 from flask import Flask, render_template, request, jsonify
 from collections import deque
 from functools import wraps
@@ -285,8 +286,6 @@ def ai_next_command():
         return jsonify({"ok": True, "cmd": cmd, "remaining": len(ai_command_queue)})
     return jsonify({"ok": True, "cmd": None, "remaining": 0})
 
-
-import json as json_module
 
 def _to_pending(cmd):
     """Convert AI command to the format ESP32 expects."""
