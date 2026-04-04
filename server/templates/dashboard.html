@@ -592,6 +592,10 @@
             <div class="ai-input-area">
                 <input type="text" id="aiInput" placeholder="Tell the robot what to do..." onkeydown="if(event.key==='Enter')sendAI()">
                 <button class="btn btn-primary" onclick="sendAI()">Send</button>
+                <select id="voiceLang" class="btn" style="padding:6px;font-size:0.8em;min-width:55px">
+                    <option value="en-US">EN</option>
+                    <option value="th-TH">TH</option>
+                </select>
                 <button class="btn btn-voice" id="voiceBtn" onclick="toggleVoice()">&#127908;</button>
             </div>
             <div class="ai-status">
@@ -930,9 +934,10 @@ function toggleVoice() {
 
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     recognition = new SpeechRecognition();
-    recognition.lang = 'en-US';
+    recognition.lang = document.getElementById('voiceLang').value;
     recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
+    recognition.maxAlternatives = 3;  // Get top 3 guesses, pick best
+    recognition.continuous = false;
 
     recognition.onstart = () => {
         isListening = true;
@@ -941,8 +946,45 @@ function toggleVoice() {
     };
 
     recognition.onresult = (event) => {
-        const text = event.results[0][0].transcript;
-        const confidence = (event.results[0][0].confidence * 100).toFixed(0);
+        // Pick best from alternatives
+        let text = event.results[0][0].transcript;
+        let confidence = (event.results[0][0].confidence * 100).toFixed(0);
+
+        // Log all alternatives for debug
+        for (let i = 0; i < event.results[0].length; i++) {
+            const alt = event.results[0][i];
+            console.log(`Voice alt ${i}: "${alt.transcript}" (${(alt.confidence*100).toFixed(0)}%)`);
+        }
+
+        // If Thai, translate common direction words to English for the AI
+        const lang = document.getElementById('voiceLang').value;
+        if (lang === 'th-TH') {
+            const thaiMap = {
+                // Directions
+                'ไปข้างหน้า': 'go forward', 'ข้างหน้า': 'forward', 'หน้า': 'forward',
+                'ถอยหลัง': 'go backward', 'ข้างหลัง': 'backward', 'หลัง': 'backward',
+                'ซ้าย': 'left', 'ไปซ้าย': 'go left',
+                'ขวา': 'right', 'ไปขวา': 'go right',
+                'เหนือ': 'north', 'ใต้': 'south', 'ตะวันออก': 'east', 'ตะวันตก': 'west',
+                // Units
+                'เมตร': 'meters', 'เซนติเมตร': 'cm', 'ซม': 'cm',
+                // Commands
+                'หยุด': 'stop', 'กลับบ้าน': 'come back', 'กลับ': 'come back',
+                'รีเซ็ต': 'reset',
+                // Numbers
+                'หนึ่ง': '1', 'สอง': '2', 'สาม': '3', 'สี่': '4', 'ห้า': '5',
+                'หก': '6', 'เจ็ด': '7', 'แปด': '8', 'เก้า': '9', 'สิบ': '10',
+            };
+            let translated = text;
+            for (const [th, en] of Object.entries(thaiMap)) {
+                translated = translated.replace(new RegExp(th, 'g'), en);
+            }
+            if (translated !== text) {
+                addAIBubble(`[TH] ${text}`, 'user');
+                text = translated;
+            }
+        }
+
         document.getElementById('aiInput').value = text;
         addAIBubble(`[Voice ${confidence}%] ${text}`, 'user');
 
