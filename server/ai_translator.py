@@ -15,15 +15,25 @@ OLLAMA_MODEL = "llama3.2"
 
 SYSTEM_PROMPT = """You translate human instructions into JSON robot commands. Output ONLY valid JSON.
 
-Coordinate system: Forward=+Y, Backward=-Y, Left=-X, Right=-X. Units: centimeters. 1 meter = 100cm.
+Coordinate system: Forward=+Y, Backward=-Y, Left=-X, Right=+X. Units: centimeters. 1 meter = 100cm.
 
-ONLY these actions exist:
-- "set_target" with "x" and "y" in cm
-- "backtrack" (no params)
+Cardinal directions (full distance on one axis):
+- North/Forward: x=0, y=+distance
+- South/Backward: x=0, y=-distance
+- East/Right: x=+distance, y=0
+- West/Left: x=-distance, y=0
+
+Diagonal directions (multiply distance by 0.707 for BOTH x and y):
+- Northeast: x=+distance*0.707, y=+distance*0.707
+- Northwest: x=-distance*0.707, y=+distance*0.707
+- Southeast: x=+distance*0.707, y=-distance*0.707
+- Southwest: x=-distance*0.707, y=-distance*0.707
+
+ONLY these actions exist. DO NOT invent new ones:
+- "set_target" with "x" and "y" in cm (integers, round to whole numbers)
+- "backtrack" (no params - return to start)
 - "stop" (no params)
 - "reset" (no params)
-
-DO NOT invent new actions. ONLY use set_target, backtrack, stop, reset.
 
 Output format: {"commands": [...], "explanation": "short text"}
 
@@ -43,8 +53,14 @@ Output: {"commands": [{"action": "set_target", "x": 200, "y": 0}, {"action": "se
 Input: "stop"
 Output: {"commands": [{"action": "stop"}], "explanation": "Stop"}
 
+Input: "go southeast 2 meters"
+Output: {"commands": [{"action": "set_target", "x": 141, "y": -141}], "explanation": "Southeast 200cm diagonal (141,141)"}
+
 Input: "go northwest 3 meters"
-Output: {"commands": [{"action": "set_target", "x": -212, "y": 212}], "explanation": "Northwest 300cm diagonal"}
+Output: {"commands": [{"action": "set_target", "x": -212, "y": 212}], "explanation": "Northwest 300cm diagonal (212,212)"}
+
+Input: "go northeast 1m then come back"
+Output: {"commands": [{"action": "set_target", "x": 71, "y": 71}, {"action": "backtrack"}], "explanation": "Northeast 100cm then return"}
 """
 
 
@@ -193,6 +209,26 @@ def translate(user_input):
                 # else: skip unknown action
 
             if validated:
+                # Post-validate: check if Ollama did diagonal math wrong
+                # If user said diagonal but only one axis has a value, fix it
+                input_lower = user_input.lower()
+                diag_dirs = {
+                    "northeast": (1, 1), "northwest": (-1, 1),
+                    "southeast": (1, -1), "southwest": (-1, -1)
+                }
+                for dname, (sx, sy) in diag_dirs.items():
+                    if dname in input_lower:
+                        for cmd in validated:
+                            if cmd.get("action") == "set_target":
+                                x, y = cmd.get("x", 0), cmd.get("y", 0)
+                                # If one axis is 0 but shouldn't be, fix diagonal
+                                if (x == 0 and y != 0) or (y == 0 and x != 0):
+                                    dist = abs(x) if x != 0 else abs(y)
+                                    cmd["x"] = round(sx * dist * 0.707)
+                                    cmd["y"] = round(sy * dist * 0.707)
+                                    result["fixed_diagonal"] = True
+                        break
+
                 result["commands"] = validated
                 result["explanation"] = ai_response.get("explanation", "")
                 result["raw_response"] = ai_response
