@@ -309,9 +309,34 @@ def ai_next_command():
     return jsonify({"ok": True, "cmd": None, "remaining": 0})
 
 
+import math
+
+def _resolve_relative(cmd):
+    """Convert move_relative to set_target using robot's current heading and position."""
+    fwd = cmd.get("forward", 0)
+    right = cmd.get("right", 0)
+
+    heading_deg = robot_state.get("heading", 0)
+    heading_rad = math.radians(heading_deg)
+    pos_x = robot_state.get("pos_x", 0)
+    pos_y = robot_state.get("pos_y", 0)
+
+    # Forward = along heading, Right = 90 degrees clockwise from heading
+    dx = fwd * math.sin(heading_rad) + right * math.cos(heading_rad)
+    dy = fwd * math.cos(heading_rad) - right * math.sin(heading_rad)
+
+    return {
+        "action": "set_target",
+        "x": round(pos_x + dx, 1),
+        "y": round(pos_y + dy, 1)
+    }
+
 def _to_pending(cmd):
     """Convert AI command to the format ESP32 expects."""
     action = cmd.get("action", "")
+    if action == "move_relative":
+        cmd = _resolve_relative(cmd)
+        action = "set_target"
     if action == "set_target":
         return {"cmd": "set_target", "x": float(cmd.get("x", 0)), "y": float(cmd.get("y", 0))}
     elif action == "backtrack":
@@ -326,6 +351,15 @@ def _execute_ai_command(cmd):
     """Convert an AI command dict to a pending robot command."""
     global pending_command
     action = cmd.get("action", "")
+
+    # Resolve relative to absolute first
+    if action == "move_relative":
+        resolved = _resolve_relative(cmd)
+        ts = time.strftime("%H:%M:%S")
+        debug_logs.append(f"[{ts}] [AI] Relative -> Absolute: heading={robot_state.get('heading',0):.0f} pos=({robot_state.get('pos_x',0):.0f},{robot_state.get('pos_y',0):.0f}) -> target=({resolved['x']},{resolved['y']})")
+        print(f"  [AI] Relative -> Absolute: fwd={cmd.get('forward',0)} right={cmd.get('right',0)} -> x={resolved['x']} y={resolved['y']}")
+        cmd = resolved
+        action = "set_target"
 
     if action == "set_target":
         x = cmd.get("x", 0)

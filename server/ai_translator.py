@@ -30,25 +30,37 @@ Diagonal directions (multiply distance by 0.707 for BOTH x and y):
 - Southwest: x=-distance*0.707, y=-distance*0.707
 
 ONLY these actions exist. DO NOT invent new ones:
-- "set_target" with "x" and "y" in cm (integers, round to whole numbers)
+- "set_target" with "x" and "y" in cm - ABSOLUTE world coordinates (for north/south/east/west)
+- "move_relative" with "forward" and "right" in cm - RELATIVE to robot's facing direction (for forward/backward/left/right)
 - "backtrack" (no params - return to start)
 - "stop" (no params)
 - "reset" (no params)
+
+CRITICAL DISTINCTION:
+- "go north/south/east/west" = ABSOLUTE direction = use "set_target" with x,y
+- "go forward/backward/left/right" = RELATIVE to where robot faces = use "move_relative" with forward,right
+- "forward" means in front of the robot, NOT always north
 
 Output format: {"commands": [...], "explanation": "short text"}
 
 Examples:
 Input: "go forward 1 meter"
-Output: {"commands": [{"action": "set_target", "x": 0, "y": 100}], "explanation": "Forward 100cm"}
+Output: {"commands": [{"action": "move_relative", "forward": 100, "right": 0}], "explanation": "Forward 100cm (relative to robot facing)"}
 
 Input: "go left 50cm"
-Output: {"commands": [{"action": "set_target", "x": -50, "y": 0}], "explanation": "Left 50cm"}
-
-Input: "go back 1 meter"
-Output: {"commands": [{"action": "set_target", "x": 0, "y": -100}], "explanation": "Backward 100cm"}
+Output: {"commands": [{"action": "move_relative", "forward": 0, "right": -50}], "explanation": "Left 50cm (relative)"}
 
 Input: "go backward 2m"
-Output: {"commands": [{"action": "set_target", "x": 0, "y": -200}], "explanation": "Backward 200cm"}
+Output: {"commands": [{"action": "move_relative", "forward": -200, "right": 0}], "explanation": "Backward 200cm (relative)"}
+
+Input: "go right 1m then forward 2m"
+Output: {"commands": [{"action": "move_relative", "forward": 0, "right": 100}, {"action": "move_relative", "forward": 200, "right": 0}], "explanation": "Right 100cm then forward 200cm (relative)"}
+
+Input: "go back 1 meter"
+Output: {"commands": [{"action": "move_relative", "forward": -100, "right": 0}], "explanation": "Backward 100cm (relative)"}
+
+Input: "go south 2m"
+Output: {"commands": [{"action": "set_target", "x": 0, "y": -200}], "explanation": "South 200cm (absolute)"}
 
 Input: "come back"
 Output: {"commands": [{"action": "backtrack"}], "explanation": "Returning to start"}
@@ -59,8 +71,8 @@ Output: {"commands": [{"action": "backtrack"}], "explanation": "Returning to sta
 IMPORTANT: "go back X meters" means move BACKWARD (set_target with negative Y).
 "come back" or "return" or "go home" means BACKTRACK to starting position. These are DIFFERENT.
 
-Input: "go right 2m then forward 1m"
-Output: {"commands": [{"action": "set_target", "x": 200, "y": 0}, {"action": "set_target", "x": 200, "y": 100}], "explanation": "Right 200cm then forward 100cm"}
+Input: "go east 2m then north 1m"
+Output: {"commands": [{"action": "set_target", "x": 200, "y": 0}, {"action": "set_target", "x": 200, "y": 100}], "explanation": "East 200cm then north 100cm (absolute)"}
 
 Input: "stop"
 Output: {"commands": [{"action": "stop"}], "explanation": "Stop"}
@@ -129,15 +141,19 @@ def rule_based_parse(text):
 
     # Parse direction + distance
     # Matches: "go forward 2 meters", "move left 50cm", "north 100", etc.
-    # Longer names first so "northwest" matches before "north"
-    directions = [
+    # Relative directions (depend on robot heading) → move_relative
+    relative_dirs = [
+        ("forward", 1, 0), ("ahead", 1, 0), ("up", 1, 0),
+        ("backward", -1, 0), ("down", -1, 0), ("back", -1, 0),
+        ("left", 0, -1),
+        ("right", 0, 1),
+    ]
+    # Absolute directions (world coordinates) → set_target
+    absolute_dirs = [
         ("northwest", -0.707, 0.707), ("northeast", 0.707, 0.707),
         ("southwest", -0.707, -0.707), ("southeast", 0.707, -0.707),
-        ("forward", 0, 1), ("ahead", 0, 1), ("north", 0, 1), ("up", 0, 1),
-        ("backward", 0, -1), ("south", 0, -1), ("down", 0, -1),
-        ("left", -1, 0), ("west", -1, 0),
-        ("right", 1, 0), ("east", 1, 0),
-        ("back", 0, -1),
+        ("north", 0, 1), ("south", 0, -1),
+        ("west", -1, 0), ("east", 1, 0),
     ]
 
     commands = []
@@ -150,7 +166,9 @@ def rule_based_parse(text):
             continue
 
         matched = False
-        for dirname, dx, dy in directions:
+
+        # Try relative directions first (forward/backward/left/right)
+        for dirname, fwd_mul, right_mul in relative_dirs:
             pattern = rf'(?:go\s+|move\s+)?{dirname}\s+(\d+\.?\d*)\s*(m|meter|meters|cm|centimeter|centimeters)?'
             m = re.search(pattern, part)
             if m:
@@ -158,20 +176,38 @@ def rule_based_parse(text):
                 unit = m.group(2) or "cm"
                 if unit in ("m", "meter", "meters"):
                     dist *= 100
-
-                x = round(dx * dist)
-                y = round(dy * dist)
-                commands.append({"action": "set_target", "x": x, "y": y})
+                commands.append({"action": "move_relative", "forward": round(fwd_mul * dist), "right": round(right_mul * dist)})
                 matched = True
                 break
 
-        # Check for backtrack phrases BEFORE bare direction match
+        # Try absolute directions (north/south/east/west)
+        if not matched:
+            for dirname, dx, dy in absolute_dirs:
+                pattern = rf'(?:go\s+|move\s+)?{dirname}\s+(\d+\.?\d*)\s*(m|meter|meters|cm|centimeter|centimeters)?'
+                m = re.search(pattern, part)
+                if m:
+                    dist = float(m.group(1))
+                    unit = m.group(2) or "cm"
+                    if unit in ("m", "meter", "meters"):
+                        dist *= 100
+                    commands.append({"action": "set_target", "x": round(dx * dist), "y": round(dy * dist)})
+                    matched = True
+                    break
+
+        # Check for backtrack phrases
         if not matched and re.search(r'come\s+back|return|go\s+home|backtrack|go\s+back\s+home', part):
             commands.append({"action": "backtrack"})
             matched = True
 
+        # Bare direction without distance
         if not matched:
-            for dirname, dx, dy in directions:
+            for dirname, fwd_mul, right_mul in relative_dirs:
+                if dirname in part:
+                    commands.append({"action": "move_relative", "forward": round(fwd_mul * 100), "right": round(right_mul * 100)})
+                    matched = True
+                    break
+        if not matched:
+            for dirname, dx, dy in absolute_dirs:
                 if dirname in part:
                     commands.append({"action": "set_target", "x": round(dx * 100), "y": round(dy * 100)})
                     matched = True
@@ -225,7 +261,7 @@ def translate(user_input):
         if "error" not in ai_response:
             commands = ai_response.get("commands", [])
             # Validate: only allow known actions
-            valid_actions = {"set_target", "backtrack", "stop", "reset"}
+            valid_actions = {"set_target", "move_relative", "backtrack", "stop", "reset"}
             validated = []
             for cmd in commands:
                 action = cmd.get("action", "")
