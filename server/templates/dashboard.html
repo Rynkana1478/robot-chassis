@@ -602,11 +602,11 @@
                     <option value="en-US">EN</option>
                     <option value="th-TH">TH</option>
                 </select>
-                <button class="btn btn-voice" id="voiceBtn" onclick="toggleVoice()" style="flex:none">&#127908;</button>
             </div>
             <div class="ai-input-area">
                 <input type="text" id="aiInput" placeholder="Tell the robot what to do..." onkeydown="if(event.key==='Enter')sendAI()">
                 <button class="btn btn-primary" onclick="sendAI()" style="flex:none">Send</button>
+                <button class="btn btn-voice" id="voiceBtn" onclick="toggleVoice()" style="flex:none">&#127908;</button>
             </div>
             <div class="ai-status">
                 <span><span class="dot" id="ollamaDot"></span> <span id="ollamaStatus">Checking...</span></span>
