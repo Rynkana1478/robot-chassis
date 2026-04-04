@@ -34,8 +34,9 @@ struct GridPoint { int x, y; };
 #define MAX_ITERATIONS  800   // prevent infinite loops on ESP32
 
 // 8-directional offsets: N, NE, E, SE, S, SW, W, NW
+// Grid Y increases = world Y increases = NORTH
 static const int DX8[] = { 0,  1,  1,  1,  0, -1, -1, -1};
-static const int DY8[] = {-1, -1,  0,  1,  1,  1,  0, -1};
+static const int DY8[] = { 1,  1,  0, -1, -1, -1,  0,  1};
 
 class Pathfinder {
 public:
@@ -130,7 +131,7 @@ public:
     void markObstacle(float distCm, float angleRad) {
         int cellDist = (int)(distCm / CELL_SIZE_CM);
         int ox = robotPos.x + (int)(cellDist * sin(angleRad));
-        int oy = robotPos.y - (int)(cellDist * cos(angleRad));
+        int oy = robotPos.y + (int)(cellDist * cos(angleRad));  // +cos: north = +gridY
 
         if (inBounds(ox, oy)) {
             grid[oy][ox] = CELL_OBSTACLE;
@@ -262,7 +263,7 @@ public:
 
         GridPoint next = path[1];
         float dx = next.x - robotPos.x;
-        float dy = -(next.y - robotPos.y); // grid Y is inverted
+        float dy = next.y - robotPos.y;  // grid Y increases = north (not inverted)
 
         float targetAngle = atan2(dx, dy);
         float diff = targetAngle - headingRad;
