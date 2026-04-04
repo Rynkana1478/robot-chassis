@@ -10,6 +10,10 @@ Autonomous 4WD robot with obstacle avoidance, A* pathfinding, and web dashboard 
 - **Dual-core** — Core 1 runs robot logic at 20Hz, Core 0 handles WiFi (never blocks)
 - **Web dashboard** — Live sensor data, manual controls, destination input, grid map, hardware tests
 - **Built-in charging** — 2S BMS + USB-C charger, never remove batteries
+- **AI natural language control** — Ollama LLM translates "go forward 2m" to robot commands (offline, free)
+- **Voice input** — Speak commands via phone mic (Chrome/Edge, EN/TH)
+- **Multi-user chat** — Everyone sees all commands, usernames shown
+- **Cloudflare tunnel** — Control from anywhere via public URL
 - **WiFi debug logger** — Stream logs to dashboard, 9 hardware test commands
 
 ## Hardware
@@ -79,11 +83,14 @@ cd ..
 
 ### 3. Configure
 
-Edit `src/config.h`:
+**You MUST edit `src/config.h` before uploading:**
 ```cpp
-#define WIFI_SSID     "YourHotspot"
-#define WIFI_PASSWORD "Password"
-#define SERVER_HOST   "192.168.43.100"  // Your PC's IP
+#define WIFI_SSID     "YourHotspot"       // Your phone hotspot name
+#define WIFI_PASSWORD "YourPassword"      // Your hotspot password
+#define SERVER_HOST   "192.168.43.100"    // Your PC's IP (or cloudflare URL)
+#define SERVER_PORT   25565               // Match your server port
+#define SERVER_HTTPS  false               // true if using cloudflare tunnel
+#define API_TOKEN     "robot123"          // Must match server token
 ```
 
 ### 4. Upload Firmware
@@ -131,13 +138,21 @@ robot_chassis/
 │   ├── debug.h                     # WiFi debug log buffer
 │   └── robot_main.cpp              # Dual-core main + WiFi task + tests
 ├── server/                         # PC dashboard server
-│   ├── app.py                      # Flask REST API
+│   ├── app.py                      # Flask REST API + AI command queue
+│   ├── ai_translator.py            # Ollama LLM + rule-based fallback
 │   ├── requirements.txt
+│   ├── start.bat                   # Start server (Windows)
+│   ├── restart.bat                 # Quick restart without killing tunnel
+│   ├── Procfile                    # Cloud deployment (Render)
 │   └── templates/
-│       └── dashboard.html          # Dashboard UI + debug console
+│       └── dashboard.html          # Dashboard + AI chat + voice + debug
 ├── test/                           # Standalone hardware tests
-│   ├── compass_mpu_test/           # MPU6050 validation
-│   └── drv8833_encoder_test/       # Motor + encoder validation
+│   ├── 01_esp32_basic/             # Board, WiFi, GPIO
+│   ├── 02_mpu6050/                 # Gyro + accelerometer
+│   ├── 03_ultrasonic_servo/        # HC-SR04 + SG90 sweep
+│   ├── 04_tb6612fng_motors/        # Motor driver + all 4 wheels
+│   ├── 05_encoders/                # Dual wheel encoders
+│   └── 06_battery_power/           # Voltage divider + charge level
 ├── platformio.ini                  # ESP32-S3 build config
 ├── component_list.md               # Parts list + wiring diagrams
 ├── WIRING_AND_ASSEMBLY.md          # Step-by-step build guide
@@ -153,13 +168,15 @@ Phone Hotspot (2.4GHz WiFi)
   │     ├── Core 1: Sensors + avoidance + pathfinding (20Hz)
   │     └── Core 0: WiFi telemetry POST + command GET (5Hz)
   │
-  └── PC (Flask server)
+  └── PC (Flask server + Ollama AI)
         ├── Stores robot state
-        ├── Serves web dashboard
-        ├── Queues user commands
-        └── Collects debug logs
+        ├── Serves web dashboard (multi-user)
+        ├── AI translator: natural language → robot commands
+        ├── Voice input via Web Speech API
+        ├── Shared chat log (all users see all commands)
+        └── Debug log streaming
 
-Priority: Safety (avoidance) > Navigation (pathfinding) > Manual control
+Priority: Safety (avoidance) > Navigation (pathfinding) > AI/Manual control
 ```
 
 ## Power System

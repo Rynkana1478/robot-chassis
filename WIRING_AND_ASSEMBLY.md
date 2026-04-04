@@ -228,7 +228,7 @@ Power:
 ESP32 does NOT use the standard Arduino `Servo.h` library. It uses **ESP32Servo** which internally uses LEDC PWM channels.
 
 ```
-Standard Arduino (AVR/ESP8266):
+Standard Arduino (AVR):
   #include <Servo.h>         ← does NOT work on ESP32
   servo.attach(pin);
 

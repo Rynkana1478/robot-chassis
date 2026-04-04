@@ -132,13 +132,6 @@ def rule_based_parse(text):
     if text in ("reset", "reset position", "restart"):
         return {"commands": [{"action": "reset"}], "explanation": "Position reset", "method": "priority"}
 
-    # Simple commands (legacy, still works)
-        return {"commands": [{"action": "stop"}], "explanation": "Emergency stop", "method": "rule"}
-    if text in ("come back", "return", "go home", "backtrack", "go back home"):
-        return {"commands": [{"action": "backtrack"}], "explanation": "Returning to start", "method": "rule"}
-    if text in ("reset", "reset position"):
-        return {"commands": [{"action": "reset"}], "explanation": "Position reset", "method": "rule"}
-
     # Parse direction + distance
     # Matches: "go forward 2 meters", "move left 50cm", "north 100", etc.
     # Relative directions (depend on robot heading) → move_relative

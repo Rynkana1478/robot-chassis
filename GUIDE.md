@@ -336,31 +336,128 @@ ipconfig
 # Look for "Wireless LAN" → IPv4 Address (e.g., 192.168.43.100)
 ```
 
-### Step 3: Start Server
+### Step 3: Install AI (Optional but Recommended)
+
+```bash
+# Install Ollama (local AI, free, offline)
+winget install Ollama.Ollama
+ollama pull llama3.2
+```
+
+Without Ollama, the AI chat still works using rule-based parsing (simpler but handles common commands).
+
+### Step 4: Start Server
 
 ```bash
 cd robot_chassis/server
-pip install flask
-python app.py
+pip install -r requirements.txt
+start.bat
 ```
 
-Open browser: `http://localhost:5000`
+Dashboard: `http://localhost:25565`
 
-### Step 4: Configure & Upload
+### Step 5: Remote Access (Cloudflare Tunnel)
 
-Edit `src/config.h` with your hotspot name, password, and PC IP. Then:
+If your PC stays at home and robot goes to a contest:
+```bash
+winget install Cloudflare.cloudflared
+cloudflared tunnel --url http://localhost:25565
+```
+
+Gives you a public URL like `https://random-words.trycloudflare.com`. Anyone can open it from anywhere.
+
+### Step 6: Configure & Upload
+
+Edit `src/config.h` with your hotspot name, password, and server URL. Then:
 ```bash
 cd robot_chassis
 pio run -t upload
 ```
 
-### Step 5: Drive
+### Step 7: Drive
 
 1. Power on the robot (battery switch)
 2. Wait ~3 seconds (gyro calibration — keep still!)
 3. Dashboard shows **CONNECTED** in green
 4. Set destination in cm → **Go To Target**
-5. Press **BACKTRACK HOME** to return
+5. Or type in AI chat: "go forward 2 meters"
+6. Press **BACKTRACK HOME** to return
+
+---
+
+## AI Natural Language Control
+
+The dashboard has an AI chat panel where you type (or speak) commands in plain English. A local LLM (Ollama Llama 3.2) translates your words into robot commands.
+
+### How It Works
+
+```
+You type:  "go forward 2 meters then come back"
+    ↓
+Ollama LLM (runs on your PC, offline, free)
+    ↓
+Translates to:
+  [1] move_relative forward:200  (relative to robot facing)
+  [2] backtrack                  (return to start)
+    ↓
+Server resolves relative using robot heading:
+  Robot facing east (90°) → set_target x:+200, y:0
+    ↓
+ESP32 receives set_target → A* pathfinding → robot moves
+```
+
+### Relative vs Absolute Directions
+
+| You Say | Type | What Happens |
+|---------|------|-------------|
+| "go forward 2m" | **Relative** | Moves in direction robot is facing |
+| "go left 1m" | **Relative** | Moves to robot's left side |
+| "go north 2m" | **Absolute** | Always moves toward world north |
+| "go east 1m" | **Absolute** | Always moves toward world east |
+
+This is important: "forward" depends on where the robot faces, "north" is always the same direction.
+
+### Priority Commands (Instant, 0ms)
+
+These words bypass the AI completely for instant response:
+- **Stop:** stop, halt, freeze, emergency, quick stop, s
+- **Return:** come back, go home, backtrack, return
+- **Reset:** reset, restart
+
+### Without Ollama
+
+If Ollama is not running, the system falls back to rule-based parsing. It handles simple commands ("go forward 2m", "stop", "come back") but can't understand complex or ambiguous sentences.
+
+---
+
+## Voice Input
+
+Click the microphone button or press it on phone to speak commands. The browser converts speech to text, then the AI translates it to robot commands.
+
+- **EN mode:** Speak English — "go forward two meters"
+- **TH mode:** Speak Thai — the dashboard translates Thai direction words to English before sending to AI
+
+Voice works on Chrome and Edge (Android and desktop). Safari and Firefox don't support the Web Speech API.
+
+**Tip:** Voice is cool for demos but text is more reliable. Use voice for simple commands ("stop", "forward"), text for precise ones ("go northwest 2.5m then come back").
+
+---
+
+## Multi-User Access
+
+Anyone who opens the dashboard URL sees the same robot state and can send commands. Type your name in the "Name" field to identify yourself in the chat.
+
+```
+Dashboard chat log:
+  [Referee] go north 3 meters
+  [AI] Forward 300cm (absolute)
+  [Staff] stop
+  [AI] EMERGENCY STOP
+  [Viewer] come back
+  [AI] Returning to start
+```
+
+All commands go to the same robot. Everyone sees everything in real-time. No app install needed — just share the URL.
 
 ---
 

@@ -4,7 +4,7 @@
 // ============================================
 // ESP32-S3 4WD Robot Chassis Configuration
 // Motor: TB6612FNG | Battery: 2S 18650 (7.4V)
-// Heading: MPU6050 gyro + QMC5883L compass fusion
+// Heading: MPU6050 gyro (QMC5883L compass optional, auto-detected)
 // ============================================
 
 // --- TB6612FNG Motor Driver ---
@@ -86,18 +86,19 @@
 #define MAX_CRUMBS          100    // 20m range (every 20cm)
 
 // --- WiFi ---
-#define WIFI_SSID     "Blackwise_2.4G"
-#define WIFI_PASSWORD "0639041446"
+// CHANGE THESE before uploading!
+#define WIFI_SSID     "YourHotspot"
+#define WIFI_PASSWORD "YourPassword"
 
 // --- Server ---
-// Home PC mode: public IP, port 25565 (already forwarded)
-// Local mode:   "192.168.x.x" port 25565
-// Cloud mode:   "your-app.onrender.com" port 443 (HTTPS)
-#define SERVER_HOST   "49.228.97.202"
+// Home PC via cloudflare: "your-tunnel.trycloudflare.com" port 443 HTTPS
+// Home PC direct:         "your-public-ip" port 25565 HTTP
+// Local LAN:              "192.168.x.x" port 25565 HTTP
+#define SERVER_HOST   "192.168.1.100"
 #define SERVER_PORT   25565
 #define SERVER_HTTPS  false
 
-// API token (must match server's ROBOT_API_TOKEN)
+// API token (must match server's ROBOT_API_TOKEN env var)
 #define API_TOKEN     "robot123"
 
 #define REPORT_INTERVAL_MS  200
